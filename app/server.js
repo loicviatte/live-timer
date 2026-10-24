@@ -215,7 +215,8 @@ async function checkForUpdate() {
   setUpdate({ checking: true, error: '' });
   try {
     const latest = await updater.latestVersion();
-    setUpdate({ latest: latest.sha, message: latest.message, available: latest.sha !== update.current, checkedAt: Date.now() });
+    const available = await updater.isNewer(update.current, latest.sha);
+    setUpdate({ latest: available ? latest.sha : update.current, message: available ? latest.message : '', available, checkedAt: Date.now() });
   } catch (err) {
     setUpdate({ error: err?.name === 'TimeoutError' ? 'GitHub did not answer' : err.message });
   } finally {

@@ -36,8 +36,16 @@ function makeRelease(sha, tweak) {
   return fs.readFileSync(archive);
 }
 
-function fakeGitHub(releases, latest) {
+// order: version ids from oldest to newest (for the "is it newer?" compare endpoint).
+function fakeGitHub(releases, latest, order = ['aaaaaaa', ...Object.keys(releases)]) {
   const server = http.createServer((req, res) => {
+    const cmp = req.url.match(/^\/repos\/me\/live-timer\/compare\/(\w+)\.\.\.(\w+)$/);
+    if (cmp) {
+      const [a, b] = [order.indexOf(cmp[1]), order.indexOf(cmp[2])];
+      if (a < 0 || b < 0) { res.statusCode = 404; return res.end(); }
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ status: b > a ? 'ahead' : b < a ? 'behind' : 'identical' }));
+    }
     if (req.url.startsWith('/repos/me/live-timer/commits/')) {
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ sha: latest(), commit: { message: `Release ${latest()}\n\ndetails`, committer: { date: '2026-10-24T12:00:00Z' } } }));
@@ -74,6 +82,22 @@ test('install: swaps the code, keeps this Mac\'s settings, records the version',
     assert.equal(updater.installedVersion(), sha);
     assert.ok(fs.statSync(path.join(dir, 'Start Timer.command')).mode & 0o100, 'launcher still executable');
     assert.deepEqual(fs.readdirSync(path.join(dir, 'app')).filter((f) => f.includes('update-tmp')), [], 'no temp files left');
+  } finally { gh.server.close(); }
+});
+
+test('never offers a downgrade (GitHub serving an older "latest" from its cache)', async () => {
+  const newer = 'f'.repeat(40);
+  const gh = await fakeGitHub({}, () => 'aaaaaaa', ['aaaaaaa', newer]);
+  useFakeGitHub(gh.url);
+  const dir = installCopy();
+  fs.writeFileSync(path.join(dir, 'app', '.version'), `${newer}\n`);
+  try {
+    const updater = require(path.join(dir, 'app', 'updater.js'));
+    const latest = await updater.latestVersion();
+    assert.equal(await updater.isNewer(newer, latest.sha), false, 'older "latest" is not an update');
+    assert.equal(await updater.isNewer('aaaaaaa', newer), true);
+    assert.equal(await updater.isNewer('1234567', newer), false, 'unknown local version: never overwritten');
+    assert.equal(await updater.isNewer(null, newer), true, 'no version info: take the published one');
   } finally { gh.server.close(); }
 });
 

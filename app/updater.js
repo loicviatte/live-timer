@@ -30,6 +30,18 @@ function installedVersion() {
   return null;
 }
 
+// Is `latest` really newer than `current`? GitHub can serve a cached "latest" for about a minute,
+// which must never offer a downgrade. Unknown to GitHub (a local, unpublished commit): not newer.
+async function isNewer(current, latest) {
+  if (!latest || latest === current) return false;
+  if (!current) return true; // copy installed without version info: take the published one
+  const res = await get(`${API}/repos/${REPO}/compare/${current}...${latest}`, { Accept: 'application/vnd.github+json' });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  const { status } = await res.json();
+  return status === 'ahead' || status === 'diverged';
+}
+
 async function latestVersion() {
   const res = await get(`${API}/repos/${REPO}/commits/${BRANCH}`, { Accept: 'application/vnd.github+json' });
   if (!res.ok) throw new Error(res.status === 403 ? 'GitHub limit reached, try again later' : `GitHub answered ${res.status}`);
@@ -111,4 +123,4 @@ async function install(sha) {
   }
 }
 
-module.exports = { installedVersion, latestVersion, install, REPO };
+module.exports = { installedVersion, latestVersion, isNewer, install, REPO };
