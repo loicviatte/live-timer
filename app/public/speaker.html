@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Timer — Speaker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; background: #111; overflow: hidden; }
+    body { user-select: none; -webkit-user-select: none; }
+    #time { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #status {
+      position: fixed; bottom: 16px; left: 0; right: 0; text-align: center;
+      font: 700 clamp(18px, 3.5vw, 40px) -apple-system, "Helvetica Neue", Arial, sans-serif; color: #fff;
+      letter-spacing: .1em; text-shadow: 0 0 6px #000, 0 0 2px #000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="time" role="img" aria-label="2:00"></canvas>
+  <div id="status"></div>
+
+  <script src="/shared.js"></script>
+  <script>
+    const canvas = document.getElementById('time');
+    const statusEl = document.getElementById('status');
+
+    Chrono.onTick((v) => {
+      Chrono.draw(canvas, v.label, v.colors);
+      canvas.setAttribute('aria-label', v.label);
+      document.body.style.background = v.colors[0];
+      statusEl.textContent = !v.connected ? 'Connecting to server…' : v.paused ? '❚❚ PAUSE' : '';
+    });
+    window.addEventListener('resize', Chrono.refresh);
+
+    Chrono.mountLiveBadge();
+    Chrono.mountHostMessage();
+    Chrono.connect();
+    Chrono.refresh();
+
+    // Keep the iPad from sleeping + full screen on tap.
+    let wakeLock = null;
+    async function keepAwake() {
+      if (!('wakeLock' in navigator) || wakeLock) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.onrelease = () => (wakeLock = null);
+      } catch {}
+    }
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && keepAwake());
+    document.addEventListener('click', () => {
+      keepAwake();
+      const el = document.documentElement;
+      (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el)?.catch?.(() => {});
+    });
+    keepAwake();
+  </script>
+</body>
+</html>

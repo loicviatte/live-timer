@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Timer — Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      min-height: 100vh; background: #0b0b0b; color: #fff;
+      font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 28px; padding: 32px 16px 48px;
+    }
+    .col { width: min(640px, 100%); display: flex; flex-direction: column; gap: 16px; }
+    h1, h2 { font-size: 14px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #a0a0a0; text-align: center; }
+    h2 { text-align: left; font-size: 20px; font-weight: 700; letter-spacing: 0; text-transform: none; color: #fff; }
+    #preview { width: 100%; aspect-ratio: 4 / 3; border-radius: 16px; display: block; background: #111; }
+    .buttons { display: flex; gap: 16px; }
+    .big {
+      flex: 1; padding: 28px 0; border: 0; border-radius: 16px;
+      font-size: clamp(18px, 4.5vw, 26px); font-weight: 800; letter-spacing: .05em; cursor: pointer; color: #fff;
+      transition: transform .05s, opacity .2s;
+    }
+    .big:active { transform: scale(.97); }
+    .big:disabled { opacity: .3; cursor: default; }
+    #go { background: #15803d; }
+    #pause { background: #b45309; }
+    #reset { background: #2a2a2a; }
+    .meta { display: flex; justify-content: space-between; font-size: 13px; color: #a0a0a0; }
+    #conn.off { color: #ff5a5a; }
+    #conn.on { color: #1fbf5b; }
+
+    /* Settings */
+    .panel { background: #161616; border: 1px solid #262626; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 18px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: baseline; }
+    #saved { font-size: 13px; color: #a0a0a0; transition: color .2s; }
+    #saved.ok { color: #1fbf5b; }
+    #saved.err { color: #ff5a5a; }
+    .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .row > label:first-child, .label { flex: 1; min-width: 160px; font-size: 15px; }
+    .sub { display: block; font-size: 12px; color: #a0a0a0; margin-top: 2px; }
+    input[type=text] {
+      width: 92px; padding: 10px 12px; border-radius: 10px; border: 1px solid #333; background: #0b0b0b;
+      color: #fff; font-size: 17px; font-variant-numeric: tabular-nums; text-align: center;
+    }
+    input[type=text]:focus { outline: 2px solid #1fbf5b; outline-offset: 1px; }
+    input[type=text].invalid { border-color: #ff5a5a; }
+    input[type=color] {
+      width: 52px; height: 42px; padding: 0; border: 1px solid #333; border-radius: 10px; background: none; cursor: pointer;
+    }
+    input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
+    input[type=color]::-webkit-color-swatch { border: 0; border-radius: 7px; }
+    .steps { display: flex; flex-direction: column; gap: 10px; }
+    .step { display: flex; align-items: center; gap: 10px; background: #0f0f0f; border: 1px solid #222; border-radius: 12px; padding: 8px 10px; }
+    .step span { font-size: 14px; color: #a0a0a0; }
+    .step .grow { flex: 1; }
+    .swatch-preview { min-width: 64px; padding: 8px 10px; border-radius: 8px; font-weight: 800; font-size: 15px; text-align: center; font-variant-numeric: tabular-nums; }
+    .small { padding: 10px 14px; border-radius: 10px; border: 1px solid #333; background: #222; color: #fff; font-size: 14px; cursor: pointer; }
+    .small:hover { background: #2c2c2c; }
+    .del { background: none; border: 0; color: #a0a0a0; font-size: 20px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
+    .del:hover { color: #ff5a5a; background: #1f1f1f; }
+    .switch { position: relative; width: 52px; height: 30px; flex: none; }
+    .switch input { opacity: 0; width: 100%; height: 100%; position: absolute; margin: 0; cursor: pointer; }
+    .switch span { position: absolute; inset: 0; background: #333; border-radius: 15px; transition: background .2s; pointer-events: none; }
+    .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; }
+    .switch input:checked + span { background: #1fbf5b; }
+    .switch input:checked + span::after { transform: translateX(22px); }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .note { font-size: 12px; color: #a0a0a0; line-height: 1.5; }
+    textarea {
+      width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid #333; background: #0b0b0b;
+      color: #fff; font: 600 20px -apple-system, "Helvetica Neue", Arial, sans-serif; resize: vertical;
+    }
+    textarea:focus { outline: 2px solid #1fbf5b; outline-offset: 1px; }
+    .msg-btn { padding: 18px 0; }
+    #msgShow { background: #2563eb; }
+    #msgClear { background: #2a2a2a; }
+    #msgLive.on { color: #ffb020; font-weight: 700; }
+    .upd-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px;
+      border-radius: 12px; background: #1e3a8a; color: #fff; font-size: 15px; font-weight: 600; }
+    .upd-banner[hidden] { display: none; }
+    .upd-banner .small { background: #fff; color: #1e3a8a; border-color: #fff; font-weight: 700; }
+    #updInstall { background: #2563eb; border-color: #2563eb; }
+    .tv-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; border: 1px solid #262626; }
+    .tv-frame[hidden] { display: none; }
+    .tv-frame iframe { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; pointer-events: none; }
+    #adminPoll.masked { opacity: .35; }
+    #pollHide { align-self: flex-start; font-size: 16px; padding: 12px 18px; }
+    #pollHide.on { background: #b45309; border-color: #b45309; }
+    #pollTvState.off { color: #ffb020; font-weight: 700; }
+    .recent { display: flex; flex-wrap: wrap; gap: 8px; }
+    .recent:empty { display: none; }
+    .chip { padding: 8px 12px; border-radius: 999px; border: 1px solid #333; background: #1f1f1f; color: #e5e5e5; font-size: 14px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip:hover { background: #2a2a2a; }
+    input[type=text].wide { width: 100%; text-align: left; font-size: 15px; }
+    input[type=range] { width: 180px; accent-color: #1fbf5b; }
+    .links { display: flex; flex-direction: column; gap: 8px; }
+    .link { display: flex; align-items: center; gap: 10px; background: #0f0f0f; border: 1px solid #222; border-radius: 12px; padding: 10px 12px; }
+    .link b { width: 70px; font-size: 14px; }
+    .link code { flex: 1; font-size: 14px; color: #e5e5e5; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <div class="col">
+    <h1>Timer admin</h1>
+    <canvas id="preview" role="img" aria-label="2:00"></canvas>
+    <div class="buttons">
+      <button class="big" id="go">GO</button>
+      <button class="big" id="pause">PAUSE</button>
+      <button class="big" id="reset">RESET</button>
+    </div>
+    <div class="meta">
+      <span>Shortcuts: Space = GO / PAUSE · R = RESET</span>
+      <span id="conn" class="off">● Disconnected</span>
+    </div>
+    <div class="upd-banner" id="updBanner" hidden role="status">
+      <span id="updBannerText">Update available</span>
+      <button class="small" id="updInstallTop">Install now</button>
+    </div>
+  </div>
+
+  <section class="col panel" aria-labelledby="tvprev-title">
+    <div class="panel-head">
+      <h2 id="tvprev-title">TV screen</h2>
+      <button class="small" id="tvPrevToggle" aria-expanded="true">Hide preview</button>
+    </div>
+    <!-- The real TV page, rendered at 1920×1080 and scaled down: exactly what the TV shows. -->
+    <div class="tv-frame" id="tvFrame"><iframe id="tvPreview" title="Live preview of the TV screen" tabindex="-1"></iframe></div>
+  </section>
+
+  <section class="col panel" aria-labelledby="msg-title">
+    <div class="panel-head">
+      <h2 id="msg-title">Message to host</h2>
+      <span id="msgLive" class="sub"></span>
+    </div>
+    <textarea id="msgText" rows="3" maxlength="300" placeholder="e.g. 5 minutes left, time to wrap up"></textarea>
+    <div class="row">
+      <label for="msgBlink">Blink when it appears</label>
+      <label class="switch"><input type="checkbox" id="msgBlink" role="switch" checked><span></span></label>
+    </div>
+    <div class="buttons">
+      <button class="big msg-btn" id="msgShow">SHOW</button>
+      <button class="big msg-btn" id="msgClear">REMOVE</button>
+    </div>
+    <p class="note">⌘/Ctrl + Enter = show · Esc = remove (when not typing)</p>
+    <div class="recent" id="msgRecent"></div>
+  </section>
+
+  <section class="col panel" aria-labelledby="poll-title">
+    <div class="panel-head">
+      <h2 id="poll-title">YouTube poll</h2>
+      <span id="pollTvState" class="sub"></span>
+    </div>
+    <div id="adminPoll" aria-live="polite" style="font-size: 24px" hidden></div>
+    <button class="small" id="pollHide" hidden>Hide on TV</button>
+    <p class="note" id="pollEmpty">No poll yet. Start one on YouTube: it will show up here and on the TV.</p>
+  </section>
+
+  <section class="col panel" aria-labelledby="settings-title">
+    <div class="panel-head">
+      <h2 id="settings-title">Settings</h2>
+      <span id="saved"></span>
+    </div>
+
+    <div class="row">
+      <label for="duration">Timer duration<span class="sub">Format m:ss, e.g. 2:00</span></label>
+      <input type="text" id="duration" inputmode="numeric" autocomplete="off">
+    </div>
+
+    <div class="row">
+      <label for="baseColor">Starting color</label>
+      <input type="color" id="baseColor">
+    </div>
+
+    <div>
+      <div class="row" style="margin-bottom:10px">
+        <span class="label">Color changes<span class="sub">From this time remaining, the background turns this color. Negative values work (e.g. -0:30).</span></span>
+      </div>
+      <div class="steps" id="steps"></div>
+    </div>
+
+    <div class="actions">
+      <button class="small" id="addStep">+ Add a step</button>
+      <button class="small" id="defaults">Reset to default settings</button>
+    </div>
+
+    <div class="row">
+      <label for="flash">Flash on every color change<span class="sub">The screen blinks for ~1 s to catch the eye</span></label>
+      <label class="switch"><input type="checkbox" id="flash" role="switch"><span></span></label>
+    </div>
+
+    <p class="note">Settings apply instantly on the iPad and TV, even mid-countdown, and are kept if the server restarts.</p>
+  </section>
+
+  <section class="col panel" aria-labelledby="yt-title">
+    <h2 id="yt-title">YouTube chat (TV screen)</h2>
+    <div class="row">
+      <label for="youtube">Live stream link<span class="sub">Paste the YouTube link of the live stream (youtube.com/watch?v=…, youtu.be/…, /live/…) or just its ID</span></label>
+    </div>
+    <input type="text" id="youtube" class="wide" autocomplete="off" spellcheck="false" placeholder="https://www.youtube.com/live/…">
+    <p class="note" id="ytStatus"></p>
+    <div class="row">
+      <label for="chatScale">Chat text size<span class="sub">Bigger = readable from further away, fewer messages on screen</span></label>
+      <input type="range" id="chatScale" min="0.8" max="3" step="0.1">
+      <output id="chatScaleOut" class="sub" style="min-width:40px;text-align:right"></output>
+    </div>
+  </section>
+
+  <section class="col panel" aria-labelledby="upd-title">
+    <div class="panel-head">
+      <h2 id="upd-title">Updates</h2>
+      <span id="updVersion" class="sub"></span>
+    </div>
+    <p class="note" id="updStatus">Checking for updates…</p>
+    <div class="actions">
+      <button class="small" id="updInstall" hidden>Install update</button>
+      <button class="small" id="updCheck">Check now</button>
+    </div>
+    <p class="note">Installing takes ~2 seconds: the countdown keeps going and every screen reloads by itself.
+      Best done between two topics.</p>
+  </section>
+
+  <section class="col panel" aria-labelledby="links-title">
+    <h2 id="links-title">Screen links</h2>
+    <div class="links" id="links"></div>
+  </section>
+
+  <script src="/shared.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const preview = $('preview'), goBtn = $('go'), pauseBtn = $('pause'), resetBtn = $('reset'), conn = $('conn');
+
+    // ---- Timer ----
+    Chrono.onTick((v) => {
+      const { status } = Chrono.state;
+      Chrono.draw(preview, v.label, v.colors, { w: 0.9, h: 0.9 });
+      preview.setAttribute('aria-label', v.label + (v.paused ? ' (paused)' : ''));
+      goBtn.disabled = status === 'running';
+      goBtn.textContent = status === 'paused' ? 'RESUME' : 'GO';
+      pauseBtn.disabled = status !== 'running';
+      resetBtn.disabled = status === 'idle';
+      conn.textContent = v.connected ? '● Connected' : '● Disconnected';
+      conn.className = v.connected ? 'on' : 'off';
+      syncForm();
+      syncMessage();
+      syncPollHidden();
+      syncUpdate();
+    });
+    window.addEventListener('resize', Chrono.refresh);
+
+    // Every control goes through act(): if the server can't be reached, the admin sees it right away.
+    let actErrorTimer = null;
+    async function act(action, body) {
+      const res = await Chrono.post(action, body);
+      if (!res.ok) {
+        conn.textContent = '⚠️ Not sent — server unreachable';
+        conn.className = 'off';
+        clearTimeout(actErrorTimer);
+        actErrorTimer = setTimeout(Chrono.refresh, 3000);
+      }
+      return res;
+    }
+    goBtn.onclick = () => act('go');
+    pauseBtn.onclick = () => act('pause');
+    resetBtn.onclick = () => act('reset');
+    document.addEventListener('keydown', (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;                    // ⌘R reloads the page, it must not reset the timer
+      if (e.target.closest?.('input, textarea, select')) return;         // typing / using a form field
+      if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; } // holding a key must not toggle again and again
+      if (e.key === 'Escape') { act('message/clear'); return; }
+      if (e.code === 'Space') { e.preventDefault(); act(Chrono.state.status === 'running' ? 'pause' : 'go'); }
+      if (e.key === 'r' || e.key === 'R') act('reset');
+    });
+
+    // ---- Settings ----
+    const DEFAULTS = {
+      duration: 120000, baseColor: '#111111', flash: true,
+      steps: [{ at: 60000, color: '#ffd60a' }, { at: 30000, color: '#ff8a00' }, { at: 0, color: '#e5002b' }],
+    };
+
+    // "1:30" → 90000, "-0:30" → -30000, "90" → 90000 (seconds)
+    function parseTime(txt) {
+      const m = txt.trim().replace(/[−–]/g, '-').match(/^(-)?\s*(?:(\d{1,2}):)?(\d{1,2})$/);
+      if (!m) return null;
+      const sec = Number(m[2] || 0) * 60 + Number(m[3]);
+      return (m[1] ? -1 : 1) * sec * 1000;
+    }
+    const fmt = (ms) => (ms < 0 ? '-' : '') + Chrono.format(Math.abs(ms));
+
+    let draft = null;        // settings shown in the form
+    let lastServerJSON = ''; // to detect a change made elsewhere
+
+    // The form is never rebuilt while the admin is using it (typing, dragging a color or the slider)
+    // or while a save is on its way: that would interrupt the gesture. It catches up right after.
+    let editing = false, savePending = false;
+    function syncForm(force = false) {
+      const json = JSON.stringify(Chrono.state.settings);
+      if (json === lastServerJSON && !force) return;
+      lastServerJSON = json;
+      if (draft && (editing || savePending)) return;
+      if (draft && JSON.stringify(draft) === json) return; // already showing exactly this
+      draft = structuredClone(Chrono.state.settings);
+      renderForm();
+    }
+    const formFields = 'input, select';
+    document.addEventListener('focusin', (e) => { if (e.target.matches?.(formFields)) editing = true; });
+    document.addEventListener('focusout', (e) => {
+      if (!e.target.matches?.(formFields)) return;
+      editing = false;
+      setTimeout(() => { if (!editing && !savePending) syncForm(true); }, 300);
+    });
+
+    function renderForm() {
+      $('duration').value = fmt(draft.duration);
+      $('duration').classList.remove('invalid');
+      $('baseColor').value = draft.baseColor;
+      $('flash').checked = draft.flash;
+      if (document.activeElement !== $('youtube')) {
+        $('youtube').value = draft.youtube ? `https://www.youtube.com/watch?v=${draft.youtube}` : '';
+        $('youtube').classList.remove('invalid');
+      }
+      $('chatScale').value = draft.chatScale;
+      $('chatScaleOut').textContent = `×${Number(draft.chatScale).toFixed(1)}`;
+      ytStatus();
+      const list = $('steps');
+      list.innerHTML = '';
+      draft.steps.forEach((st, i) => {
+        const row = document.createElement('div');
+        row.className = 'step';
+        row.innerHTML = `
+          <span>At</span>
+          <input type="text" inputmode="numeric" autocomplete="off" aria-label="Time remaining for step ${i + 1}">
+          <span class="grow">left →</span>
+          <div class="swatch-preview"></div>
+          <input type="color" aria-label="Color for step ${i + 1}">
+          <button class="del" aria-label="Delete step ${i + 1}" title="Delete">×</button>`;
+        const [timeIn, colorIn] = row.querySelectorAll('input');
+        const sw = row.querySelector('.swatch-preview');
+        const paint = () => { sw.style.background = st.color; sw.style.color = Chrono.textColor(st.color); sw.textContent = fmt(st.at); };
+        timeIn.value = fmt(st.at);
+        colorIn.value = st.color;
+        paint();
+        timeIn.addEventListener('input', () => timeIn.classList.toggle('invalid', parseTime(timeIn.value) === null));
+        timeIn.addEventListener('change', () => {
+          const ms = parseTime(timeIn.value);
+          if (ms !== null) { st.at = ms; save(); }
+          draft.steps.sort((a, b) => b.at - a.at);
+          renderForm();
+        });
+        colorIn.addEventListener('input', () => { st.color = colorIn.value; paint(); save(); });
+        row.querySelector('.del').onclick = () => { draft.steps.splice(i, 1); renderForm(); save(); };
+        list.appendChild(row);
+      });
+    }
+
+    $('duration').addEventListener('input', (e) => {
+      const ms = parseTime(e.target.value);
+      e.target.classList.toggle('invalid', !(ms !== null && ms > 0));
+    });
+    $('duration').addEventListener('change', (e) => {
+      if (!draft) return;
+      const ms = parseTime(e.target.value);
+      if (ms !== null && ms > 0) { draft.duration = ms; save(); }
+      e.target.value = fmt(draft.duration);
+      e.target.classList.remove('invalid');
+    });
+    // Enter applies a time field right away.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.matches?.('input[type=text]:not(#youtube)')) e.target.blur();
+    });
+    $('baseColor').addEventListener('input', (e) => { if (!draft) return; draft.baseColor = e.target.value; save(); });
+    $('flash').addEventListener('change', (e) => { if (!draft) return; draft.flash = e.target.checked; save(); });
+    $('addStep').onclick = () => {
+      if (!draft) return;
+      const lowest = draft.steps.length ? draft.steps[draft.steps.length - 1].at : draft.duration;
+      draft.steps.push({ at: lowest - 15000, color: '#7a00ff' });
+      renderForm(); save();
+    };
+    $('defaults').onclick = () => {
+      if (!draft) return;
+      draft = { ...structuredClone(DEFAULTS), youtube: draft.youtube, chatScale: draft.chatScale };
+      renderForm(); save();
+    };
+
+    // ---- YouTube ----
+    // Accepts a watch?v=, youtu.be/, /live/, /embed/, Studio (/video/ID/…) link or the bare ID.
+    function parseYouTube(txt) {
+      txt = txt.trim();
+      if (!txt) return '';
+      if (/^[\w-]{11}$/.test(txt)) return txt;
+      try {
+        const u = new URL(/^https?:\/\//.test(txt) ? txt : `https://${txt}`);
+        if (u.hostname.endsWith('youtu.be')) return /^\/[\w-]{11}$/.test(u.pathname) ? u.pathname.slice(1) : null;
+        const v = u.searchParams.get('v');
+        if (v && /^[\w-]{11}$/.test(v)) return v;
+        const m = u.pathname.match(/\/(?:live|embed|shorts|video)\/([\w-]{11})/);
+        if (m) return m[1];
+      } catch {}
+      return null;
+    }
+    let chatState = { state: 'off' }, chatCount = 0;
+    setInterval(() => { if (draft && Chrono.state.liveStartedAt) ytStatus(); }, 1000);
+    function ytStatus() {
+      const el = $('ytStatus');
+      el.style.color = '';
+      if (!draft.youtube) { el.textContent = 'No live stream set: the TV shows the timer only.'; return; }
+      const s = chatState;
+      const { liveStartedAt } = Chrono.state;
+      const live = liveStartedAt ? ` · Live for ${Chrono.formatLong(Chrono.serverNow() - liveStartedAt)}` : '';
+      if (s.state === 'ok') { el.textContent = `✓ Chat connected — ${chatCount} message${chatCount === 1 ? '' : 's'} received${live}`; el.style.color = '#1fbf5b'; }
+      else if (s.state === 'error') { el.textContent = `⚠️ ${s.detail}. Retrying automatically… (the TV shows the embedded YouTube chat meanwhile)`; el.style.color = '#ffb020'; }
+      else el.textContent = `Connecting to the chat of live stream ${draft.youtube}…`;
+    }
+    Chrono.onChat((ev) => {
+      if ('poll' in ev) {
+        // In the admin, results stay visible until the next poll.
+        $('adminPoll').hidden = !ev.poll;
+        $('pollHide').hidden = !ev.poll;
+        $('pollEmpty').hidden = !!ev.poll;
+        if (ev.poll) Chrono.renderPoll($('adminPoll'), ev.poll, { liveResults: true }); // admin sees live results
+        syncPollHidden();
+      }
+      if (ev.type === 'reset') { chatState = ev.status; chatCount = ev.messages.length; }
+      if (ev.type === 'status') { chatState = ev.status; if (ev.status.state !== 'ok') chatCount = 0; }
+      if (ev.type === 'add') chatCount += ev.messages.length;
+      if (draft) ytStatus();
+    });
+    $('youtube').addEventListener('input', (e) => {
+      if (!draft) return;
+      const id = parseYouTube(e.target.value);
+      e.target.classList.toggle('invalid', id === null);
+      if (id === null) { $('ytStatus').textContent = 'Link not recognized.'; return; }
+      draft.youtube = id; ytStatus(); save();
+    });
+    $('chatScale').addEventListener('input', (e) => {
+      if (!draft) return;
+      draft.chatScale = Number(e.target.value);
+      $('chatScaleOut').textContent = `×${draft.chatScale.toFixed(1)}`;
+      save();
+    });
+
+    // ---- Screen links (same address as the one used to open the admin) ----
+    const base = `${location.protocol}//${location.host}`;
+    $('links').innerHTML = [['iPad', '/'], ['TV', '/tv'], ['Admin', '/admin']].map(([name, path]) =>
+      `<div class="link"><b>${name}</b><code>${base}${path}</code><button class="small" data-copy="${base}${path}">Copy</button></div>`).join('');
+    $('links').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-copy]');
+      if (!btn) return;
+      try { await navigator.clipboard.writeText(btn.dataset.copy); btn.textContent = 'Copied ✓'; }
+      catch { btn.textContent = 'Select the link'; }
+      setTimeout(() => (btn.textContent = 'Copy'), 1500);
+    });
+
+    // Debounced auto-save, so dragging a color doesn't spam the server.
+    let saveTimer = null;
+    function save() {
+      $('saved').textContent = 'Saving…';
+      $('saved').className = '';
+      savePending = true;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        const res = await Chrono.post('settings', draft);
+        $('saved').textContent = res.ok ? 'Saved ✓' : 'Save failed — check the connection';
+        $('saved').className = res.ok ? 'ok' : 'err';
+        savePending = false;
+        if (!editing) syncForm(true);
+      }, 250);
+    }
+
+    // ---- Message to host ----
+    const RECENT_KEY = 'chrono.recentMessages';
+    let recent = [];
+    try { recent = JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch {}
+
+    function renderRecent() {
+      $('msgRecent').replaceChildren(...recent.map((text) => {
+        const chip = document.createElement('button');
+        chip.className = 'chip';
+        chip.textContent = text;
+        chip.title = 'Put this text back in the field';
+        chip.onclick = () => { $('msgText').value = text; $('msgText').focus(); };
+        return chip;
+      }));
+    }
+
+    async function showMessage() {
+      const text = $('msgText').value.trim();
+      if (!text) { $('msgText').focus(); return; }
+      const res = await act('message', { text, blink: $('msgBlink').checked });
+      if (!res.ok) return;
+      recent = [text, ...recent.filter((t) => t !== text)].slice(0, 8);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(recent)); } catch {}
+      renderRecent();
+    }
+
+    function syncMessage() {
+      const m = Chrono.state.message;
+      $('msgLive').textContent = m ? `● On screen: “${m.text.length > 40 ? m.text.slice(0, 40) + '…' : m.text}”` : 'No message shown';
+      $('msgLive').className = m ? 'sub on' : 'sub';
+      $('msgClear').disabled = !m;
+    }
+
+    // ---- Poll: hide / show again on the TV ----
+    function syncPollHidden() {
+      const hidden = !!Chrono.state.pollHidden;
+      const hasPoll = !$('adminPoll').hidden;
+      $('adminPoll').classList.toggle('masked', hidden);
+      $('pollHide').textContent = hidden ? 'Show on TV' : 'Hide on TV';
+      $('pollHide').classList.toggle('on', hidden);
+      $('pollHide').setAttribute('aria-pressed', hidden);
+      $('pollTvState').textContent = !hasPoll ? '' : hidden ? '● Hidden on TV' : 'Visible on TV';
+      $('pollTvState').className = hidden && hasPoll ? 'sub off' : 'sub';
+    }
+    $('pollHide').onclick = () => act('poll/hidden', { hidden: !Chrono.state.pollHidden });
+
+    $('msgShow').onclick = showMessage;
+    $('msgClear').onclick = () => act('message/clear');
+    $('msgText').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); showMessage(); }
+    });
+    renderRecent();
+
+    // ---- Live updates ----
+    const short = (sha) => (sha ? sha.slice(0, 7) : 'unknown');
+    function syncUpdate() {
+      const u = Chrono.state.update;
+      if (!u) return;
+      $('updVersion').textContent = `Version ${short(u.current)}`;
+      const busy = u.installing ? 'Installing… the screens will reload in a moment.' : u.checking ? 'Checking for updates…' : '';
+      $('updStatus').textContent = busy
+        || (u.needsManualRestart ? '✓ Installed. To finish (one time only): close the "Start Timer" window and open it again.'
+        : u.error ? `⚠️ ${u.error}`
+        : u.available ? `New version ${short(u.latest)}: ${u.message}`
+        : u.latest ? `✓ Up to date (checked ${new Date(u.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+        : 'Not checked yet.');
+      const canInstall = u.available && !u.installing && !u.needsManualRestart;
+      $('updInstall').hidden = !canInstall;
+      $('updBanner').hidden = !(canInstall || u.installing);
+      $('updBannerText').textContent = u.installing ? 'Installing the update… screens will reload.' : `Update available: ${u.message}`;
+      $('updInstallTop').hidden = !!u.installing;
+      $('updCheck').disabled = !!(u.checking || u.installing);
+    }
+    const installUpdate = () => {
+      if (!confirm('Install the update now? Screens reload in ~2 seconds; the countdown keeps going.')) return;
+      act('update/install');
+    };
+    $('updInstall').onclick = installUpdate;
+    $('updInstallTop').onclick = installUpdate;
+    $('updCheck').onclick = () => act('update/check');
+
+    // ---- TV preview: the real /tv page at TV size, scaled to the panel width ----
+    const tvFrame = $('tvFrame'), tvPreview = $('tvPreview');
+    const fitTvPreview = () => { tvPreview.style.transform = `scale(${tvFrame.clientWidth / 1920})`; };
+    new ResizeObserver(fitTvPreview).observe(tvFrame);
+    let tvPrevOn = true;
+    try { tvPrevOn = localStorage.getItem('chrono.tvPreview') !== 'off'; } catch {}
+    function setTvPreview(on) {
+      tvPrevOn = on;
+      tvFrame.hidden = !on;
+      // Hidden = page unloaded, so it uses no connection or CPU.
+      tvPreview.src = on ? '/tv?preview=1' : 'about:blank';
+      $('tvPrevToggle').textContent = on ? 'Hide preview' : 'Show preview';
+      $('tvPrevToggle').setAttribute('aria-expanded', on);
+      try { localStorage.setItem('chrono.tvPreview', on ? 'on' : 'off'); } catch {}
+      if (on) requestAnimationFrame(fitTvPreview);
+    }
+    $('tvPrevToggle').onclick = () => setTvPreview(!tvPrevOn);
+    setTvPreview(tvPrevOn);
+
+    Chrono.connect({ chat: true });
+    Chrono.refresh();
+  </script>
+</body>
+</html>

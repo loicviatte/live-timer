@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Timer — TV</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; background: #0b0b0b; overflow: hidden; }
+    body {
+      display: grid; grid-template-columns: 34vw 1fr;
+      font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif; color: #fff;
+      user-select: none; -webkit-user-select: none;
+    }
+    body.no-chat { grid-template-columns: 1fr; }
+    body.no-chat .chat { display: none; }
+
+    .clock { position: relative; min-width: 0; }
+    #time { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    /* LIVE badge in the top left: the timer starts below it. */
+    body.live-on #time { top: 6.5vw; height: calc(100% - 6.5vw); }
+    #status {
+      position: absolute; bottom: 16px; left: 0; right: 0; text-align: center;
+      font-weight: 700; font-size: clamp(18px, 2.4vw, 44px); letter-spacing: .1em;
+      text-shadow: 0 0 6px #000, 0 0 2px #000;
+    }
+
+    /* ---- Large-text chat ---- */
+    .chat {
+      position: relative; overflow: hidden; background: #fff; color: #000;
+      --font: calc(1.9vw * var(--chat-scale, 1.4));
+    }
+    #messages {
+      position: absolute; inset: 0; padding: 0 2vw 1.5vw;
+      display: flex; flex-direction: column; justify-content: flex-end; gap: calc(var(--font) * .65);
+      font-size: var(--font); line-height: 1.2;
+    }
+    .msg { animation: in .35s ease-out; }
+    .msg.no-anim { animation: none; }
+    @keyframes in { from { opacity: 0; transform: translateY(.6em); } }
+    .author { font-size: .8em; font-weight: 700; color: #5a5a5a; margin-bottom: .1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .text {
+      font-weight: 700; color: #000; overflow-wrap: anywhere;
+      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .text img { height: 1.1em; width: auto; vertical-align: -0.2em; }
+    .msg.owner .author { color: #a15c00; }
+    .msg.moderator .author { color: #1d4ed8; }
+    .msg.paid { background: #1d4ed8; border-radius: .3em; padding: .3em .45em; }
+    .msg.paid .author { color: #dbeafe; }
+    .msg.paid .text { color: #fff; }
+    .amount { margin-left: .5em; padding: 0 .4em; border-radius: .3em; background: #fff; color: #1d4ed8; font-weight: 800; }
+    #chatInfo {
+      position: absolute; top: 0; left: 0; right: 0; padding: .6vw 1.2vw;
+      font-size: max(14px, .9vw); color: #5a5a5a; background: linear-gradient(#fff 60%, transparent);
+    }
+    #chatInfo:empty { display: none; }
+
+    /* ---- YouTube poll: card pinned to the top of the chat ---- */
+    #poll { position: absolute; top: 1.5vw; left: 2vw; right: 2vw; z-index: 5; font-size: var(--font); }
+    #poll[hidden] { display: none; }
+
+    /* ---- Fallback: embedded YouTube chat ---- */
+    #fallback {
+      position: absolute; top: 0; left: 0; border: 0; display: none;
+      width: calc(100% / var(--chat-scale, 1.4)); height: calc(100% / var(--chat-scale, 1.4));
+      transform: scale(var(--chat-scale, 1.4)); transform-origin: 0 0;
+    }
+    .chat.fallback #fallback { display: block; }
+    .chat.fallback #messages, .chat.fallback #chatInfo { display: none; }
+  </style>
+</head>
+<body class="no-chat">
+  <div class="clock">
+    <canvas id="time" role="img" aria-label="2:00"></canvas>
+    <div id="status"></div>
+  </div>
+  <aside class="chat" id="chatPanel" aria-label="YouTube live chat">
+    <div id="messages" aria-live="polite"></div>
+    <div id="chatInfo"></div>
+    <div id="poll" hidden aria-live="polite"></div>
+    <iframe id="fallback" title="YouTube live chat"></iframe>
+  </aside>
+
+  <script src="/shared.js"></script>
+  <script>
+    const canvas = document.getElementById('time');
+    const statusEl = document.getElementById('status');
+    const panel = document.getElementById('chatPanel');
+    const list = document.getElementById('messages');
+    const info = document.getElementById('chatInfo');
+    const fallback = document.getElementById('fallback');
+    const MAX_MESSAGES = 40;
+
+    // ---- Timer ----
+    let currentVideo = null;
+    function syncChatSettings() {
+      const { youtube, chatScale } = Chrono.state.settings;
+      document.body.style.setProperty('--chat-scale', chatScale || 1.4);
+      if (youtube === currentVideo) return;
+      const previous = currentVideo;
+      currentVideo = youtube;
+      document.body.classList.toggle('no-chat', !youtube);
+      // Only a real change of live stream clears the chat (not the first load: the
+      // server may already have sent the recent messages).
+      if (previous !== null) {
+        fallback.src = 'about:blank';
+        list.replaceChildren();
+      }
+      requestAnimationFrame(Chrono.refresh); // the timer area changed size
+    }
+
+    Chrono.onTick((v) => {
+      syncChatSettings();
+      // With chat: timer stacked (minutes above seconds). Without: one full-screen line.
+      const withChat = !document.body.classList.contains('no-chat');
+      Chrono.draw(canvas, v.label, v.colors, withChat ? { w: 0.9, h: 0.92, stacked: true } : {});
+      canvas.parentElement.style.background = v.colors[0]; // the strip under the LIVE badge follows the timer color
+      canvas.setAttribute('aria-label', v.label);
+      statusEl.textContent = !v.connected ? 'Connecting to server…' : v.paused ? '❚❚ PAUSE' : '';
+    });
+    window.addEventListener('resize', Chrono.refresh);
+    Chrono.mountLiveBadge();
+    Chrono.mountHostMessage();
+    Chrono.connect({ chat: true });
+    Chrono.refresh();
+
+    // ---- Chat ----
+    function renderMessage(m) {
+      const el = document.createElement('div');
+      el.className = `msg ${m.role || ''} ${m.amount ? 'paid' : ''}`;
+      el.dataset.id = m.id;
+      const author = document.createElement('div');
+      author.className = 'author';
+      author.textContent = m.author;
+      if (m.amount) {
+        const amount = document.createElement('span');
+        amount.className = 'amount';
+        amount.textContent = m.amount;
+        author.append(amount);
+      }
+      const text = document.createElement('div');
+      text.className = 'text';
+      for (const p of m.parts) {
+        if (p.img) {
+          const img = document.createElement('img');
+          img.src = p.img; img.alt = p.alt; img.referrerPolicy = 'no-referrer';
+          text.append(img);
+        } else {
+          text.append(p.text);
+        }
+      }
+      el.append(author, text);
+      return el;
+    }
+
+    // Busy chats (dozens of messages per second) must not slow the timer down: only the messages
+    // that fit on screen are built, and the slide-in animation is kept for messages arriving a few at a time.
+    // Heavy chat rendering never lands right before the timer's next second: the timer always wins.
+    let pending = [], flushTimer = null;
+    function queueMessages(messages) {
+      pending.push(...messages);
+      if (flushTimer) return;
+      const wait = Chrono.msUntilNextSecond();
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        const batch = pending; pending = [];
+        addMessages(batch);
+      }, wait < 200 ? wait + 40 : 0);
+    }
+
+    function addMessages(messages) {
+      const visible = messages.slice(-MAX_MESSAGES);
+      const animate = visible.length <= 3;
+      const nodes = visible.map((m) => { const el = renderMessage(m); if (!animate) el.classList.add('no-anim'); return el; });
+      if (nodes.length >= MAX_MESSAGES) list.replaceChildren(...nodes);
+      else list.append(...nodes);
+      while (list.children.length > MAX_MESSAGES) list.firstChild.remove();
+      updateChatInfo();
+    }
+
+    // If our chat reader fails and there's nothing to show, switch to the embedded YouTube chat.
+    function setStatus(status) {
+      const failing = status.state === 'error';
+      const useFallback = failing && list.children.length === 0 && currentVideo;
+      panel.classList.toggle('fallback', !!useFallback);
+      if (useFallback && !fallback.src.includes(currentVideo)) {
+        fallback.src = `https://www.youtube.com/live_chat?v=${currentVideo}&embed_domain=${location.hostname}`;
+      }
+      chatState = status;
+      updateChatInfo();
+    }
+    // A short status line at the top of the chat, only when there's something to know.
+    let chatState = { state: 'off' };
+    function updateChatInfo() {
+      const s = chatState, empty = !list.children.length;
+      info.textContent =
+          s.state === 'connecting' && empty ? 'Connecting to chat…'
+        : s.state === 'ok' && empty ? 'Chat connected — waiting for the first message…'
+        : s.state === 'error' && !panel.classList.contains('fallback') ? 'Chat: reconnecting…'
+        : '';
+    }
+
+    // ---- Poll ----
+    const pollEl = document.getElementById('poll');
+    let pollHideTimer = null;
+    let currentPoll = null, pollExpired = false, pollHiddenByAdmin = false;
+    const RESULTS_MS = 20000; // results stay on the TV for 20 s after the poll ends
+    function renderPoll(poll) {
+      currentPoll = poll;
+      if (poll) Chrono.renderPoll(pollEl, poll);
+      // Counted from when the server saw the poll end: reloading the TV or reconnecting doesn't
+      // bring old results back. Old results replayed from history have no end time: never shown.
+      armExpiry(poll?.closed ? (poll.closedAt ? RESULTS_MS - (Chrono.serverNow() - poll.closedAt) : 0) : null);
+      updatePollVisibility();
+    }
+    function armExpiry(ms) {
+      clearTimeout(pollHideTimer);
+      pollExpired = ms != null && ms <= 0;
+      if (ms > 0) pollHideTimer = setTimeout(() => { pollExpired = true; updatePollVisibility(); }, ms);
+    }
+    function updatePollVisibility() {
+      pollEl.hidden = !currentPoll || pollExpired || pollHiddenByAdmin;
+    }
+    // Admin "Hide" button (server state). Showing again restarts the 20 s of results.
+    Chrono.onTick(() => {
+      const hidden = !!Chrono.state.pollHidden;
+      if (hidden === pollHiddenByAdmin) return;
+      pollHiddenByAdmin = hidden;
+      if (!hidden && currentPoll?.closed) armExpiry(RESULTS_MS); // showing again: 20 s of results
+      updatePollVisibility();
+    });
+
+    Chrono.onChat((ev) => {
+      if ('poll' in ev) renderPoll(ev.poll);
+      if (ev.type === 'reset') { pending = []; list.replaceChildren(); addMessages(ev.messages); setStatus(ev.status); }
+      if (ev.type === 'add') { queueMessages(ev.messages); }
+      if (ev.type === 'remove') { list.querySelector(`[data-id="${CSS.escape(ev.id)}"]`)?.remove(); }
+      if (ev.type === 'status') { setStatus(ev.status); }
+    });
+
+    // Keep the screen awake + full screen on click (not in the admin's preview: /tv?preview=1).
+    const isPreview = new URLSearchParams(location.search).has('preview');
+    let wakeLock = null;
+    async function keepAwake() {
+      if (isPreview || !('wakeLock' in navigator) || wakeLock) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.onrelease = () => (wakeLock = null);
+      } catch {}
+    }
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && keepAwake());
+    document.querySelector('.clock').addEventListener('click', () => {
+      if (isPreview) return;
+      keepAwake();
+      const el = document.documentElement;
+      (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el)?.catch?.(() => {});
+    });
+    keepAwake();
+  </script>
+</body>
+</html>

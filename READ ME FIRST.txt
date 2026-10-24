@@ -1,0 +1,53 @@
+LIVE TIMER — speaker timer for live streams
+============================================
+
+Three screens, all synced over the Wi-Fi:
+  • iPad   — the countdown, huge
+  • TV     — the countdown + the YouTube live chat + polls + live duration
+  • Admin  — GO / PAUSE / RESET, settings, messages to the host
+
+
+FIRST TIME SETUP (5 minutes, once)
+----------------------------------
+1. Install Node.js: go to https://nodejs.org, download the "LTS" version,
+   run the installer (Next, Next, Install).
+
+2. Double-click "Start Timer".
+   macOS will probably say it can't verify the developer. That's normal:
+   right-click "Start Timer" → Open → Open. You only need to do this once.
+
+
+EVERY LIVE
+----------
+1. Double-click "Start Timer". A window shows three links, for example:
+      SPEAKER (iPad):  http://192.168.1.20:3000/
+      TV:              http://192.168.1.20:3000/tv
+      ADMIN:           http://192.168.1.20:3000/admin
+2. Open each link on its device (Safari on the iPad, a browser on the TV computer,
+   any browser for the admin). Tap/click the timer once for full screen.
+3. In the admin, paste the YouTube link of the live stream (section "YouTube chat")
+   so the TV shows the chat, the polls and the live duration.
+
+Keep the "Start Timer" window open during the whole live (closing it stops the timer).
+The Mac running it stays awake automatically.
+
+
+GOOD TO KNOW
+------------
+• All devices must be on the same Wi-Fi. Venue Wi-Fi sometimes blocks devices from
+  talking to each other: an iPhone hotspot always works.
+• The links change with the network: always copy them from the "Start Timer" window.
+• Admin shortcuts: Space = GO / PAUSE, R = RESET, Esc = remove the host message.
+• If something looks stuck: just reload the page. If the Mac restarts or the window
+  is closed by mistake, double-click "Start Timer" again: the countdown resumes where it was.
+• On the TV computer, keep the TV page in front and full screen. In Chrome, turn off
+  "Memory Saver" (Settings → Performance) so the tab is never put to sleep.
+• The YouTube chat must be enabled on the live stream (not "made for kids").
+
+
+UPDATES
+-------
+New versions are published online. When one is available, the admin shows
+"Update available" with an "Install now" button: click it whenever you like
+(between two topics is best). It takes about 2 seconds, the countdown keeps going,
+your settings are kept, and every screen reloads by itself. Nothing to download.

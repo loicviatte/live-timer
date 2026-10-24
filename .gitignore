@@ -1,0 +1,12 @@
+# This Mac's own data (never published, never overwritten by an update)
+app/settings.json
+app/runtime-state.json
+app/.version
+*.tmp
+*.update-tmp
+
+# Local tooling
+.claude/
+.impeccable/
+.DS_Store
+node_modules/
