@@ -10,3 +10,5 @@ app/.version
 .impeccable/
 .DS_Store
 node_modules/
+app/.backup/
+app/.update-pending

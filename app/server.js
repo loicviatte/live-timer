@@ -24,9 +24,16 @@ const BUILD = (() => {
   return hash.digest('hex').slice(0, 12);
 })();
 
-// A live tool must not die on an unexpected error: log it and keep serving.
-process.on('uncaughtException', (err) => console.error('  [error]', err?.stack || err));
-process.on('unhandledRejection', (err) => console.error('  [error]', err?.stack || err));
+// A live tool must not die on an unexpected error once it's running: log it and keep serving.
+// During startup, though, an error is fatal: a half-started server must be noticed (and an update
+// that can't start properly must be refused by the dry run).
+let started = false;
+const onFatal = (err) => {
+  console.error('  [error]', err?.stack || err);
+  if (!started) process.exit(1);
+};
+process.on('uncaughtException', onFatal);
+process.on('unhandledRejection', onFatal);
 
 // Monotonic clock: an NTP adjustment on the Mac during the live won't make the timer jump.
 const now = () => performance.timeOrigin + performance.now();
@@ -223,6 +230,7 @@ async function checkForUpdate() {
     setUpdate({ checking: false });
   }
 }
+updater.confirmAfter(Number(process.env.UPDATE_CONFIRM_MS) || 60000);
 if (process.env.UPDATE_CHECK !== '0') {
   setTimeout(checkForUpdate, 3000).unref();
   setInterval(checkForUpdate, Number(process.env.UPDATE_CHECK_MS) || 5 * 60 * 1000).unref();
@@ -434,4 +442,8 @@ server.on('error', (err) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => printUrls(false));
+server.listen(PORT, '0.0.0.0', () => {
+  printUrls(false);
+  // Fully started once the whole file has run and the port is open.
+  setImmediate(() => { started = true; });
+});

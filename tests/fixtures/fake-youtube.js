@@ -81,4 +81,4 @@ http.createServer((req, res) => {
   if (req.url.startsWith('/chaos')) enabled = true;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify({ ids: log.map((m) => m.id), times: log.map((m) => m.at), faults, sessions: sessionId }));
-}).listen(Number(process.env.FAKE_YT_PORT) || 3013).unref();
+}).on('error', () => {}).listen(Number(process.env.FAKE_YT_PORT) || 3013).unref(); // (a dry-run copy may share the port)
