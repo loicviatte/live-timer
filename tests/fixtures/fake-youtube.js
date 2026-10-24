@@ -67,8 +67,11 @@ global.fetch = async (url, opts = {}) => {
       session.cursor = log.length;
       // 60 different viewers; with FAKE_YT_KEYWORD, every 3rd message contains it (giveaway tests).
       actions = items.map(({ id, at }) => {
-        const n = Number(id.split('_')[1]) || 0, viewer = n % 60;
-        const kw = process.env.FAKE_YT_KEYWORD && n % 3 === 0 ? ` ${process.env.FAKE_YT_KEYWORD} ` : ' ';
+        // (offset by the start time: after a server restart, new viewers keep arriving)
+        const viewers = Number(process.env.FAKE_YT_VIEWERS) || 60;
+        const n = Number(id.split('_')[1]) || 0, viewer = (n + (viewers > 1000 ? startedAt : 0)) % viewers;
+        const every = Number(process.env.FAKE_YT_KEYWORD_EVERY) || 3;
+        const kw = process.env.FAKE_YT_KEYWORD && n % every === 0 ? ` ${process.env.FAKE_YT_KEYWORD} ` : ' ';
         return { clickTrackingParams: 'x', addChatItemAction: { item: { liveChatTextMessageRenderer: {
           id, message: { runs: [{ text: `Message ${id} —${kw}the quick brown fox jumps over the lazy dog` }] },
           authorName: { simpleText: `@viewer${viewer}` }, authorExternalChannelId: `UCviewer${viewer}`,

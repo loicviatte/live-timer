@@ -5,6 +5,7 @@
 // Run with:  node --test tests/
 
 const test = require('node:test');
+const { freePort } = require('./helpers');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -43,13 +44,13 @@ test('chaos: 100 screens, 20 clicks/s, flaky YouTube, live update + crash — no
   await new Promise((r) => gh.listen(0, r));
   const ghUrl = `http://localhost:${gh.address().port}`;
 
-  const port = 43000 + Math.floor(Math.random() * 1000), base = `http://localhost:${port}`;
+  const port = await freePort(), fakePort = await freePort(), base = `http://localhost:${port}`;
   const launcher = spawn('/bin/zsh', [path.join(dir, 'Start Timer.command')], {
     detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: String(port), UPDATE_REPO: 'me/live-timer', UPDATE_API: ghUrl, UPDATE_CODELOAD: ghUrl,
       UPDATE_CHECK_MS: '2000', UPDATE_CONFIRM_MS: '3000',
       NODE_OPTIONS: `--require ${path.join(REPO_ROOT, 'tests', 'fixtures', 'fake-youtube.js')}`,
-      FAKE_YT_PORT: String(port + 1), FAKE_YT_RATE: '20', FAKE_YT_CHAOS: '0.1',
+      FAKE_YT_PORT: String(fakePort), FAKE_YT_RATE: '20', FAKE_YT_CHAOS: '0.1',
       YT_POLL_MS: '300', YT_TIMEOUT_MS: '2000', YT_BACKOFF_MS: '300', YT_STALL_MS: '5000' },
   });
   let out = '';

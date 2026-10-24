@@ -2,6 +2,7 @@
 // copy of the app, so the real files are never touched. Run with:  node --test tests/
 
 const test = require('node:test');
+const { freePort } = require('./helpers');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -123,7 +124,7 @@ test('from the admin: install → server restarts by itself, countdown keeps goi
   const release = makeRelease(v2, (top) => fs.appendFileSync(path.join(top, 'app', 'public', 'admin.html'), '\n<!-- v2 -->\n'));
   const gh = await fakeGitHub({ [v2]: release }, () => v2);
   const dir = installCopy();
-  const port = 39000 + Math.floor(Math.random() * 1000);
+  const port = await freePort();
   const base = `http://localhost:${port}`;
   // The real launcher loop, minus caffeinate/Terminal: restart on exit code 75.
   const env = { ...process.env, PORT: String(port), NO_YOUTUBE: '1', TIMER_SUPERVISED: '1', UPDATE_CHECK_MS: '600000',
@@ -230,7 +231,7 @@ test('a release that dies after starting: the launcher goes back to the previous
     "\nif (!process.env.TIMER_PREFLIGHT) setTimeout(() => process.exit(1), 1000);\n"));
   const gh = await fakeGitHub({ [bad]: release }, () => bad);
   const dir = installCopy();
-  const port = 40000 + Math.floor(Math.random() * 1000), base = `http://localhost:${port}`;
+  const port = await freePort(), base = `http://localhost:${port}`;
   const launcher = runLauncher(dir, { PORT: String(port), NO_YOUTUBE: '1', UPDATE_CHECK_MS: '600000',
     UPDATE_REPO: 'me/live-timer', UPDATE_API: gh.url, UPDATE_CODELOAD: gh.url });
   try {
@@ -255,7 +256,7 @@ test('a release that dies after starting: the launcher goes back to the previous
 
 test('launcher: an unexpected crash (not an update) restarts the server, countdown resumes', async () => {
   const dir = installCopy();
-  const port = 41000 + Math.floor(Math.random() * 1000), base = `http://localhost:${port}`;
+  const port = await freePort(), base = `http://localhost:${port}`;
   const launcher = runLauncher(dir, { PORT: String(port), NO_YOUTUBE: '1', UPDATE_CHECK: '0' });
   try {
     const first = await waitState(base, () => true);
@@ -277,7 +278,7 @@ test('launcher: an unexpected crash (not an update) restarts the server, countdo
 test('launcher: a crash loop stops after 5 tries instead of looping forever', async () => {
   const dir = installCopy();
   fs.appendFileSync(path.join(dir, 'app', 'server.js'), '\nprocess.exit(3);\n'); // dies at every start
-  const launcher = runLauncher(dir, { PORT: String(42000 + Math.floor(Math.random() * 1000)), NO_YOUTUBE: '1', UPDATE_CHECK: '0' });
+  const launcher = runLauncher(dir, { PORT: String(await freePort()), NO_YOUTUBE: '1', UPDATE_CHECK: '0' });
   try {
     const code = await new Promise((resolve) => launcher.child.on('exit', resolve));
     assert.match(launcher.out(), /keeps stopping/);

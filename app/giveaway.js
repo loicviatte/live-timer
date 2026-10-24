@@ -63,15 +63,24 @@ class Giveaway {
 
   // Fair draw among the entrants who haven't won yet.
   draw() {
-    const pool = [...this.entrants].filter(([id]) => !this.winners.some((w) => w.authorId === id));
+    const won = new Set(this.winners.map((w) => w.authorId));
+    const pool = [...this.entrants].filter(([id]) => !won.has(id));
     if (!pool.length) throw new Error(this.entrants.size ? 'Everyone has already won' : 'No entries yet');
     const [authorId, entry] = pool[crypto.randomInt(pool.length)];
     const winner = { authorId, author: entry.author, at: Date.now() };
     this.winners.push(winner);
     // A few other names for the "spinning" animation on the TV.
-    const others = pool.filter(([id]) => id !== authorId).map(([, e]) => e.author);
-    for (let i = others.length - 1; i > 0; i--) { const j = crypto.randomInt(i + 1); [others[i], others[j]] = [others[j], others[i]]; }
-    this.reveal = { author: winner.author, drawnAt: winner.at, pool: others.slice(0, 24) };
+    // A few other random names for the "spinning" animation on the TV (sampled, not a full shuffle:
+    // stays instant with tens of thousands of entries).
+    const others = [], picked = new Set();
+    const candidates = pool.length - 1;
+    while (others.length < Math.min(24, candidates)) {
+      const [id, e] = pool[crypto.randomInt(pool.length)];
+      if (id === authorId || picked.has(id)) continue;
+      picked.add(id);
+      others.push(e.author);
+    }
+    this.reveal = { author: winner.author, drawnAt: winner.at, pool: others };
     return winner;
   }
 

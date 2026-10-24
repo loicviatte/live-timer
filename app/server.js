@@ -83,11 +83,24 @@ function readJson(file) {
 }
 
 // Atomic write (temp file + rename): a crash mid-write never leaves a corrupted file.
+// Writes to the same file never overlap: while one is in progress, the next one waits, and a burst
+// of changes becomes a single write of the latest data. `data` can be a function: it's only turned
+// into JSON when actually written (cheap even with a big state and many clicks).
+const writing = new Map(); // file -> { busy, pending }
 function writeJson(file, data) {
+  const w = writing.get(file) || { busy: false, pending: undefined };
+  writing.set(file, w);
+  if (w.busy) { w.pending = data; return; }
+  w.busy = true;
   const tmp = `${file}.tmp`;
-  fs.writeFile(tmp, JSON.stringify(data, null, 2), (err) => {
-    if (err) return console.error('  [error] could not save', path.basename(file), err.message);
-    fs.rename(tmp, file, (e) => e && console.error('  [error] could not save', path.basename(file), e.message));
+  const value = typeof data === 'function' ? data() : data;
+  fs.writeFile(tmp, typeof value === 'string' ? value : JSON.stringify(value), (err) => {
+    const done = () => {
+      w.busy = false;
+      if (w.pending !== undefined) { const next = w.pending; w.pending = undefined; writeJson(file, next); }
+    };
+    if (err) { console.error('  [error] could not save', path.basename(file), err.message); return done(); }
+    fs.rename(tmp, file, (e) => { if (e) console.error('  [error] could not save', path.basename(file), e.message); done(); });
   });
 }
 
@@ -127,7 +140,8 @@ function stateSnapshot() {
     giveaway: giveaway.toJSON(),
   };
 }
-function saveState() { writeJson(STATE_FILE, stateSnapshot()); }
+// Saved right away (a crash just after a draw must not lose the winner); bursts are merged by writeJson.
+function saveState() { writeJson(STATE_FILE, stateSnapshot); }
 
 function setState(patch) {
   state = { ...state, ...patch };

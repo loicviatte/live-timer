@@ -2,6 +2,7 @@
 // members-only, fair draws without repeats, persistence. Run with:  node --test tests/
 
 const test = require('node:test');
+const { freePort } = require('./helpers');
 const assert = require('node:assert/strict');
 const { Giveaway } = require('../app/giveaway');
 
@@ -115,10 +116,10 @@ const path = require('node:path');
 const http = require('node:http');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function startServer(dir, port) {
+function startServer(dir, port, fakePort) {
   const proc = spawn(process.execPath, [path.join(__dirname, '..', 'app', 'server.js')], {
     env: { ...process.env, PORT: String(port), UPDATE_CHECK: '0', SETTINGS_FILE: path.join(dir, 'settings.json'), STATE_FILE: path.join(dir, 'state.json'),
-      NODE_OPTIONS: `--require ${path.join(__dirname, 'fixtures', 'fake-youtube.js')}`, FAKE_YT_PORT: String(port + 1),
+      NODE_OPTIONS: `--require ${path.join(__dirname, 'fixtures', 'fake-youtube.js')}`, FAKE_YT_PORT: String(fakePort),
       FAKE_YT_RATE: '20', FAKE_YT_CHAOS: '0.05', FAKE_YT_KEYWORD: 'FiFtH', YT_POLL_MS: '300', YT_TIMEOUT_MS: '2000', YT_BACKOFF_MS: '300' },
     stdio: 'ignore',
   });
@@ -133,8 +134,8 @@ const api = (base, body) => fetch(`${base}/api/giveaway`, { method: 'POST', head
 test('end to end: chat → entries → draw → restart keeps everything', { timeout: 60000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timer-ga-'));
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ youtube: 'GIVEAWAY001' }));
-  const port = 44000 + Math.floor(Math.random() * 1000), base = `http://localhost:${port}`;
-  let srv = startServer(dir, port);
+  const port = await freePort(), fakePort = await freePort(), base = `http://localhost:${port}`;
+  let srv = startServer(dir, port, fakePort);
   try {
     for (let i = 0; i < 60; i++) { try { await getState(base); break; } catch { await sleep(100); } }
     assert.equal((await api(base, { action: 'draw' })).error, 'No entries yet');
@@ -159,7 +160,7 @@ test('end to end: chat → entries → draw → restart keeps everything', { tim
     assert.equal(s.giveaway.winners.length, 2);
     // Brutal restart: entries, winners and the reveal survive.
     await srv.stop();
-    srv = startServer(dir, port);
+    srv = startServer(dir, port, fakePort);
     for (let i = 0; i < 60; i++) { try { s = await getState(base); break; } catch { await sleep(100); } }
     assert.equal(s.giveaway.count, closedCount);
     assert.deepEqual(s.giveaway.winners.map((w) => w.author), [w1.winner.author, w2.winner.author]);
