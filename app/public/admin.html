@@ -523,13 +523,23 @@
 
     // ---- Live updates ----
     const short = (sha) => (sha ? sha.slice(0, 7) : 'unknown');
+    let updatedUntil = 0;
     function syncUpdate() {
       const u = Chrono.state.update;
       if (!u) return;
       $('updVersion').textContent = `Version ${short(u.current)}`;
       const busy = u.installing ? 'Installing… the screens will reload in a moment.' : u.checking ? 'Checking for updates…' : '';
+      // Right after an update: confirm it (the page reloaded by itself with the new version).
+      let justUpdated = false;
+      try {
+        const seen = localStorage.getItem('chrono.version');
+        justUpdated = seen && u.current && seen !== u.current;
+        if (u.current) localStorage.setItem('chrono.version', u.current);
+      } catch {}
+      if (justUpdated) updatedUntil = Date.now() + 15000;
       $('updStatus').textContent = busy
-        || (u.needsManualRestart ? '✓ Installed. To finish (one time only): close the "Start Timer" window and open it again.'
+        || (Date.now() < updatedUntil && !u.available ? `✓ Updated to version ${short(u.current)}${u.message ? ` — ${u.message}` : ''}`
+        : u.needsManualRestart ? '✓ Installed. To finish (one time only): close the "Start Timer" window and open it again.'
         : u.error ? `⚠️ ${u.error}`
         : u.available ? `New version ${short(u.latest)}: ${u.message}`
         : u.latest ? `✓ Up to date (checked ${new Date(u.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
