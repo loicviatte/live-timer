@@ -1,4 +1,5 @@
 // Server stress tests. Run all tests with:  node --test tests/
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // Each test starts a real server on a free port with temporary files and no YouTube access.
 
 const test = require('node:test');

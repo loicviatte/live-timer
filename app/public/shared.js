@@ -25,7 +25,10 @@ window.Chrono = (function () {
   let lastMessageAt = 0;
   let pageBuild = null; // version of the server code this page was loaded with
   function connect(opts = {}) {
-    const url = opts.chat ? '/events?chat=1' : '/events';
+    const q = new URLSearchParams();
+    if (opts.chat) q.set('chat', '1');
+    if (opts.screen) q.set('screen', opts.screen); // lets the server know which screens are connected
+    const url = `/events${q.toString() ? `?${q}` : ''}`;
     const open = () => {
       if (es) es.close();
       es = new EventSource(url);

@@ -1,4 +1,5 @@
 // Giveaway under extreme load: 300 chat messages/s from 100,000 different viewers, all typing the
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // keyword, with a brutal crash in the middle of the entries. The server must stay responsive, the
 // saved file must never be corrupted, no entry may be lost beyond the last instant, draws never repeat.
 // Run with:  node --test tests/

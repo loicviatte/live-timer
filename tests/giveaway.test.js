@@ -1,4 +1,5 @@
 // Giveaway tests: keyword matching, one entry per person, history before the opening ignored,
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // members-only, fair draws without repeats, persistence. Run with:  node --test tests/
 
 const test = require('node:test');

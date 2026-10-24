@@ -1,4 +1,5 @@
 // YouTube chat reader tests, against a fake YouTube (no network): messages, reconnects, timeouts,
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // moderation, both poll formats, history replay. Run with:  node --test tests/
 
 process.env.YT_POLL_MS = '20';

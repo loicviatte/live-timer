@@ -1,4 +1,5 @@
 // Screen-side timer tests: runs the real public/shared.js in a simulated browser with a fake clock
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // (hours of countdown in milliseconds). Run with:  node --test tests/
 
 const test = require('node:test');

@@ -128,7 +128,7 @@
     Chrono.mountLiveBadge();
     Chrono.mountGiveaway();
     Chrono.mountHostMessage();
-    Chrono.connect({ chat: true });
+    Chrono.connect({ chat: true, screen: new URLSearchParams(location.search).has('preview') ? 'preview' : 'tv' });
     Chrono.refresh();
 
     // ---- Chat ----

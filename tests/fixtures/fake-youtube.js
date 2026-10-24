@@ -24,7 +24,7 @@ setInterval(() => {
 
 const fault = () => {
   if (!enabled || Math.random() > CHAOS) return null;
-  const kinds = ['hang', 'http500', 'http429', 'badJson', 'noContents', 'stall', 'slow'];
+  const kinds = (process.env.FAKE_YT_FAULTS || 'hang,http500,http429,badJson,noContents,stall,slow').split(',');
   const k = kinds[Math.floor(Math.random() * kinds.length)];
   faults[k] = (faults[k] || 0) + 1;
   return k;

@@ -1,4 +1,5 @@
 // Chat endurance test: thousands of polling cycles against a fake YouTube that keeps producing
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // messages while failing in every way we can think of. Every message must arrive, exactly once,
 // and the flow must never stay stuck. Run with:  node --test tests/
 

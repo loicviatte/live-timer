@@ -12,3 +12,5 @@ app/.version
 node_modules/
 app/.backup/
 app/.update-pending
+app/monitor.json
+app/.rolled-back

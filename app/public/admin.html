@@ -265,6 +265,10 @@
     </div>
     <p class="note">Installing takes ~2 seconds: the countdown keeps going and every screen reloads by itself.
       Best done between two topics.</p>
+    <div class="row">
+      <label for="monitorOn">Remote alerts<span class="sub" id="monitorInfo">Sends technical status only (never chat messages or names)</span></label>
+      <label class="switch"><input type="checkbox" id="monitorOn" role="switch"><span></span></label>
+    </div>
   </section>
 
   <section class="col panel" aria-labelledby="links-title">
@@ -293,6 +297,7 @@
       syncPollHidden();
       syncUpdate();
       syncGiveaway();
+      syncMonitor();
     });
     window.addEventListener('resize', Chrono.refresh);
 
@@ -370,6 +375,7 @@
       $('chatScale').value = draft.chatScale;
       $('chatScaleOut').textContent = `×${Number(draft.chatScale).toFixed(1)}`;
       ytStatus();
+      $('monitorOn').checked = draft.monitor !== false;
       const list = $('steps');
       list.innerHTML = '';
       draft.steps.forEach((st, i) => {
@@ -650,6 +656,15 @@
     $('updInstall').onclick = installUpdate;
     $('updInstallTop').onclick = installUpdate;
     $('updCheck').onclick = () => act('update/check');
+    $('monitorOn').addEventListener('change', (e) => { if (!draft) return; draft.monitor = e.target.checked; save(); });
+    function syncMonitor() {
+      const m = Chrono.state.monitor;
+      if (!m) return;
+      $('monitorOn').disabled = !m.configured;
+      $('monitorInfo').replaceChildren(m.configured
+        ? Object.assign(document.createElement('span'), { textContent: m.active ? `On — alerts go to ntfy.sh/${m.topic} (technical status only)` : 'Off — no alert is sent' })
+        : document.createTextNode('Not set up on this Mac'));
+    }
 
     // ---- TV preview: the real /tv page at TV size, scaled to the panel width ----
     const tvFrame = $('tvFrame'), tvPreview = $('tvPreview');
@@ -670,7 +685,7 @@
     $('tvPrevToggle').onclick = () => setTvPreview(!tvPrevOn);
     setTvPreview(tvPrevOn);
 
-    Chrono.connect({ chat: true });
+    Chrono.connect({ chat: true, screen: 'admin' });
     Chrono.refresh();
   </script>
 </body>

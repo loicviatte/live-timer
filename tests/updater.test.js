@@ -1,4 +1,5 @@
 // Live update tests, against a fake GitHub (local HTTP server). Each test works on a throwaway
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // copy of the app, so the real files are never touched. Run with:  node --test tests/
 
 const test = require('node:test');

@@ -10,6 +10,10 @@ const crypto = require('crypto');
 const { YouTubeChat } = require('./youtube-chat');
 const updater = require('./updater');
 const { Giveaway } = require('./giveaway');
+const { Monitor } = require('./monitor');
+const monitor = new Monitor();
+// Incident tracking for the alerts (see "Remote health monitoring" below).
+let chatErrorSince = null, chatAlerted = false, tvMissingSince = null, tvAlerted = false, tvSeenAt = 0;
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -32,6 +36,7 @@ let started = false;
 const onFatal = (err) => {
   console.error('  [error]', err?.stack || err);
   if (!started) process.exit(1);
+  monitor.send({ title: '⚠️ Unexpected error', message: String(err?.stack || err).slice(0, 600), priority: 4, tags: ['warning'], key: 'error' });
 };
 process.on('uncaughtException', onFatal);
 process.on('unhandledRejection', onFatal);
@@ -75,6 +80,7 @@ function sanitize(input) {
     flash: s.flash !== false,
     youtube: typeof s.youtube === 'string' && /^[\w-]{11}$/.test(s.youtube) ? s.youtube : '',
     chatScale: Math.min(3, Math.max(0.8, Number(s.chatScale) || DEFAULT_SETTINGS.chatScale)),
+    monitor: s.monitor !== false, // remote health alerts (see monitor.js)
   };
 }
 
@@ -111,11 +117,14 @@ function writeJson(file, data) {
 let state = { status: 'idle', startedAt: null, pausedElapsed: 0, message: null, pollHidden: false, settings: sanitize(readJson(SETTINGS_FILE) || DEFAULT_SETTINGS) };
 
 const giveaway = new Giveaway();
+// How the previous run ended: still "alive" in the file = it stopped without warning (crash, kill).
+let previousRun = null;
 
 // Restore the timer after a restart (crash, update, closed window): a running countdown keeps going.
 (function restoreState() {
   const saved = readJson(STATE_FILE);
   if (!saved || typeof saved !== 'object') return;
+  previousRun = { alive: !!saved.alive, exitReason: saved.exitReason || null };
   giveaway.restore(saved.giveaway);
   const status = ['idle', 'running', 'paused'].includes(saved.status) ? saved.status : 'idle';
   const startedAt = status === 'running' && Number.isFinite(saved.startedAtWall) ? fromWall(saved.startedAtWall) : null;
@@ -138,6 +147,7 @@ function stateSnapshot() {
     message: state.message && { text: state.message.text },
     pollHidden: state.pollHidden,
     giveaway: giveaway.toJSON(),
+    alive: true, // cleared on a clean exit (see markExit)
   };
 }
 // Saved right away (a crash just after a draw must not lose the winner); bursts are merged by writeJson.
@@ -163,7 +173,8 @@ function send(res, chunk) {
 }
 
 function payload() {
-  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), build: BUILD, update, giveaway: giveaway.publicState(), serverNow: now() });
+  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), build: BUILD, update, giveaway: giveaway.publicState(),
+    monitor: { configured: !!monitor.topic, active: monitor.active, topic: monitor.topic }, serverNow: now() });
 }
 
 function broadcast() {
@@ -199,6 +210,11 @@ const chat = new YouTubeChat({
   onStatus: (status) => {
     chatSend({ type: 'status', status });
     if (status.state === 'error') console.log(`  [chat] ${status.detail}`);
+    if (status.state === 'error') chatErrorSince ??= Date.now();
+    if (status.state === 'ok' || status.state === 'off') {
+      if (chatAlerted) monitor.send({ title: '✅ YouTube chat back', message: 'The chat is flowing again on the TV.', priority: 3, tags: ['white_check_mark'] });
+      chatErrorSince = null; chatAlerted = false;
+    }
   },
 });
 
@@ -230,6 +246,7 @@ function liveStartedAt() {
   return chat.live ? fromWall(chat.live.startWall) : null;
 }
 startChat(state.settings.youtube);
+monitor.enabled = state.settings.monitor;
 
 // Supervisor: if the chat reader ever stops showing signs of life (a bug, a promise that never
 // settles…), restart it. Messages must never silently stop arriving.
@@ -237,6 +254,7 @@ const CHAT_STUCK_MS = Number(process.env.CHAT_STUCK_MS) || 90000;
 setInterval(() => {
   if (!chat.isStuck(CHAT_STUCK_MS)) return;
   console.log('  [chat] reader stuck — restarting it');
+  monitor.send({ title: '⚠️ Chat reader was stuck', message: 'It has been restarted automatically.', priority: 4, tags: ['warning'], key: 'stuck' });
   chat.start(chat.videoId, { force: true });
 }, Math.min(15000, CHAT_STUCK_MS / 3)).unref();
 
@@ -275,14 +293,75 @@ async function installUpdate() {
       return setUpdate({ installing: false, current: update.latest, available: false, needsManualRestart: true });
     }
     console.log('\n  ↻ Update installed — restarting…');
-    fs.writeFileSync(STATE_FILE, JSON.stringify(stateSnapshot(), null, 2)); // the countdown survives the restart
+    markExit('update'); // the countdown survives the restart
     server.close();
     for (const res of clients.keys()) res.end();
     setTimeout(() => process.exit(RESTART_CODE), 300);
   } catch (err) {
     setUpdate({ installing: false, error: err.message });
+    monitor.send({ title: '⚠️ Update not installed', message: `${err.message}. The current version keeps running.`, priority: 4, tags: ['warning'] });
   }
 }
+
+// ---- Remote health monitoring (see monitor.js) ----
+const screensCount = () => {
+  const n = { tv: 0, ipad: 0, admin: 0 };
+  for (const { screen } of clients.values()) if (screen in n) n[screen]++;
+  return n;
+};
+function statusLine() {
+  const n = screensCount();
+  const c = chat.status;
+  const chatTxt = !state.settings.youtube ? 'no live link' : c.state === 'ok' ? 'chat OK' : c.state === 'error' ? `chat ERROR (${c.detail})` : `chat ${c.state}`;
+  const up = Math.round((Date.now() - bootAt) / 60000);
+  return `Timer ${state.status} · ${chatTxt} · screens: TV ${n.tv}, iPad ${n.ipad}, admin ${n.admin} · `
+    + `version ${(update.current || 'unknown').slice(0, 7)} · up ${up} min${giveaway.open ? ` · giveaway open (${giveaway.entrants.size})` : ''}`;
+}
+const bootAt = Date.now();
+const CHAT_ALERT_MS = Number(process.env.CHAT_ALERT_MS) || 120000; // chat down this long → alert
+const TV_ALERT_MS = Number(process.env.TV_ALERT_MS) || 60000;     // no TV this long while running → alert
+
+function markExit(reason) {
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify({ ...stateSnapshot(), alive: false, exitReason: reason }, null, 2)); } catch {}
+}
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { markExit('stopped'); process.exit(0); });
+}
+
+setTimeout(() => {
+  const rolledBack = fs.existsSync(path.join(__dirname, '.rolled-back'));
+  if (rolledBack) fs.rmSync(path.join(__dirname, '.rolled-back'), { force: true });
+  const why = rolledBack ? ['🛟 Update failed — back to the previous version', 5, ['rotating_light']]
+    : previousRun?.alive ? ['⚠️ Restarted after an unexpected stop', 4, ['warning']]
+    : previousRun?.exitReason === 'update' ? [`✅ Updated to version ${(update.current || '').slice(0, 7)}`, 3, ['arrow_up']]
+    : ['▶️ Timer started', 2, ['stopwatch']];
+  monitor.send({ title: why[0], message: statusLine(), priority: why[1], tags: why[2] });
+}, Number(process.env.MONITOR_START_DELAY_MS) || 4000).unref();
+
+setInterval(() => {
+  // Heartbeat (silent on the phone).
+  monitor.send({ title: '💓 OK', message: statusLine(), priority: 1, tags: ['heartbeat'], key: 'heartbeat', every: 5 * 60 * 1000 - 5000 });
+}, Number(process.env.MONITOR_HEARTBEAT_MS) || 5 * 60 * 1000).unref();
+
+setInterval(() => {
+  // Chat down for more than 2 minutes.
+  if (chatErrorSince && !chatAlerted && Date.now() - chatErrorSince > CHAT_ALERT_MS) {
+    chatAlerted = true;
+    monitor.send({ title: '⚠️ YouTube chat down for 2 min', message: `${chat.status.detail || 'No answer'}. Retrying automatically. ${statusLine()}`, priority: 4, tags: ['warning'] });
+  }
+  // TV screen gone during the countdown (it was there in the last 10 minutes).
+  const tv = screensCount().tv;
+  if (tv > 0) tvSeenAt = Date.now();
+  const missing = tv === 0 && state.status === 'running' && Date.now() - tvSeenAt < 10 * 60 * 1000;
+  if (missing) tvMissingSince ??= Date.now(); else {
+    if (tvAlerted) monitor.send({ title: '✅ TV screen back', message: statusLine(), priority: 3, tags: ['white_check_mark'] });
+    tvMissingSince = null; tvAlerted = false;
+  }
+  if (tvMissingSince && !tvAlerted && Date.now() - tvMissingSince > TV_ALERT_MS) {
+    tvAlerted = true;
+    monitor.send({ title: '⚠️ TV screen disconnected', message: `No TV connected for 1 min while the timer is running. ${statusLine()}`, priority: 4, tags: ['warning'] });
+  }
+}, Number(process.env.MONITOR_CHECK_MS) || 15000).unref();
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -336,7 +415,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
     req.socket.setNoDelay(true);
     const wantsChat = url.searchParams.get('chat') === '1';
-    clients.set(res, { chat: wantsChat });
+    clients.set(res, { chat: wantsChat, screen: String(url.searchParams.get('screen') || '').slice(0, 16) });
     send(res, 'retry: 1000\n\n');
     send(res, `data: ${payload()}\n\n`);
     if (wantsChat) send(res, `event: chat\ndata: ${JSON.stringify(chatSnapshot())}\n\n`);
@@ -439,6 +518,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const settings = sanitize(await readJsonBody(req));
       setState({ settings });
+      monitor.enabled = settings.monitor;
       writeJson(SETTINGS_FILE, settings);
       startChat(settings.youtube);
       res.writeHead(200, { 'Content-Type': 'application/json' });

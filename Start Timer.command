@@ -34,7 +34,7 @@ while true; do
   elif [[ -f .update-pending && -d .backup ]]; then
     # The server died right after an update: put the previous version back and restart it.
     echo "\n  ⚠️  The new version stopped unexpectedly — going back to the previous version…\n"
-    ditto .backup . && rm -rf .backup .update-pending
+    ditto .backup . && rm -rf .backup .update-pending && touch .rolled-back
   elif [[ $code -ne 0 ]]; then
     # Unexpected stop: restart right away (the countdown resumes where it was).
     (( SECONDS - window_start > 60 )) && { crashes=0; window_start=$SECONDS; }

@@ -1,4 +1,5 @@
 // "Everything at once" end-to-end chaos test, closest to a messy live:
+process.env.MONITOR = '0'; // never send real alerts from tests (child servers inherit this)
 // the REAL launcher + server, a fake YouTube chat that keeps failing, a fake GitHub,
 // 100 screens that reconnect by themselves, 20 admin clicks per second for 45 s,
 // a live update installed in the middle, then a brutal server crash.

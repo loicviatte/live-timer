@@ -23,7 +23,7 @@ const VERSION_FILE = path.join(APP_DIR, '.version');
 const BACKUP_DIR = path.join(APP_DIR, '.backup');
 const PENDING_FILE = path.join(APP_DIR, '.update-pending');
 // Never overwritten by an update: they belong to this Mac.
-const KEEP = new Set(['settings.json', 'runtime-state.json', '.version', '.update-pending']);
+const KEEP = new Set(['settings.json', 'runtime-state.json', '.version', '.update-pending', 'monitor.json', '.rolled-back']);
 // Files next to the app folder that an update also refreshes.
 const ROOT_FILES = ['Start Timer.command', 'READ ME FIRST.txt'];
 
@@ -104,7 +104,7 @@ async function preflight(src, tmp) {
   }
   const child = spawn(process.execPath, [path.join(src, 'app', 'server.js')], {
     cwd: path.join(src, 'app'), stdio: 'ignore',
-    env: { ...process.env, PORT: String(port), NO_YOUTUBE: '1', UPDATE_CHECK: '0', TIMER_PREFLIGHT: '1',
+    env: { ...process.env, PORT: String(port), NO_YOUTUBE: '1', UPDATE_CHECK: '0', TIMER_PREFLIGHT: '1', MONITOR: '0',
       TIMER_SUPERVISED: '', SETTINGS_FILE: settings, STATE_FILE: state },
   });
   let exited = false;
