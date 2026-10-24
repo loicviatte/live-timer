@@ -316,12 +316,15 @@ function parseItem(item) {
     const thumbs = e.image?.thumbnails || [];
     return { img: thumbs[thumbs.length - 1]?.url, alt: e.shortcuts?.[0] || '' };
   }).filter(Boolean);
-  const badges = (r.authorBadges || []).map((b) => b.liveChatAuthorBadgeRenderer?.icon?.iconType);
+  const badgeRenderers = (r.authorBadges || []).map((b) => b.liveChatAuthorBadgeRenderer || {});
+  const badges = badgeRenderers.map((b) => b.icon?.iconType);
   return {
     id: r.id,
     authorId: r.authorExternalChannelId || null,
     author: r.authorName?.simpleText || '',
     role: badges.includes('OWNER') ? 'owner' : badges.includes('MODERATOR') ? 'moderator' : null,
+    member: badgeRenderers.some((b) => b.customThumbnail), // channel members have a custom badge image
+    at: Number(r.timestampUsec) / 1000 || null,            // when it was posted (wall clock, ms)
     parts,
     amount: r.purchaseAmountText?.simpleText || null, // Super Chat
   };

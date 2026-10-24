@@ -77,6 +77,20 @@
     #msgShow { background: #2563eb; }
     #msgClear { background: #2a2a2a; }
     #msgLive.on { color: #ffb020; font-weight: 700; }
+    .ga-keyword { width: 180px !important; text-transform: uppercase; font-weight: 700; }
+    .ga-btn { padding: 18px 0; }
+    #gaToggle { background: #15803d; }
+    #gaToggle.open { background: #b91c1c; }
+    #gaDraw { background: #a16207; }
+    .ga-count { font-size: 15px; color: #cfcfcf; }
+    .ga-count b { font-size: 28px; color: #fff; font-variant-numeric: tabular-nums; margin-right: 4px; }
+    .ga-recent { display: block; margin-top: 4px; font-size: 13px; color: #a0a0a0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ga-winners { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 17px; font-weight: 700; }
+    .ga-winners:empty { display: none; }
+    .ga-winners li::marker { color: #ffd60a; }
+    .ga-error { color: #ff7a7a; }
+    .ga-error:empty { display: none; }
+    #gaState.open { color: #4ade80; font-weight: 700; }
     .upd-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px;
       border-radius: 12px; background: #1e3a8a; color: #fff; font-size: 15px; font-weight: 600; }
     .upd-banner[hidden] { display: none; }
@@ -145,6 +159,38 @@
     </div>
     <p class="note">⌘/Ctrl + Enter = show · Esc = remove (when not typing)</p>
     <div class="recent" id="msgRecent"></div>
+  </section>
+
+  <section class="col panel" aria-labelledby="ga-title">
+    <div class="panel-head">
+      <h2 id="ga-title">Giveaway</h2>
+      <span id="gaState" class="sub"></span>
+    </div>
+    <div class="row">
+      <label for="gaKeyword">Keyword to type in the chat<span class="sub">Case and accents don't matter. Each person is entered once.</span></label>
+      <input type="text" id="gaKeyword" class="ga-keyword" maxlength="40" autocomplete="off" spellcheck="false" placeholder="e.g. FIFTH">
+    </div>
+    <div class="row">
+      <label for="gaMembers">Channel members only<span class="sub">Only people with a member badge in the chat can enter</span></label>
+      <label class="switch"><input type="checkbox" id="gaMembers" role="switch"><span></span></label>
+    </div>
+    <div class="row">
+      <label for="gaBanner">Show "how to enter" on the TV<span class="sub">A banner with the keyword and the number of entries</span></label>
+      <label class="switch"><input type="checkbox" id="gaBanner" role="switch" checked><span></span></label>
+    </div>
+    <div class="buttons">
+      <button class="big ga-btn" id="gaToggle">OPEN ENTRIES</button>
+      <button class="big ga-btn" id="gaDraw">DRAW A WINNER</button>
+    </div>
+    <div class="ga-count"><b id="gaCount">0</b> <span id="gaCountLabel">entries</span><span class="ga-recent" id="gaRecent"></span></div>
+    <ol class="ga-winners" id="gaWinners"></ol>
+    <div class="actions">
+      <button class="small" id="gaHide" hidden>Hide winner on TV</button>
+      <button class="small" id="gaReset">Reset giveaway</button>
+    </div>
+    <p class="note ga-error" id="gaError" role="alert"></p>
+    <p class="note">YouTube doesn't tell who liked the live, nor who is subscribed. To keep the giveaway to subscribers,
+      turn on <b>Subscribers-only chat</b> in YouTube Studio while entries are open: only subscribers can type the keyword.</p>
   </section>
 
   <section class="col panel" aria-labelledby="poll-title">
@@ -246,6 +292,7 @@
       syncMessage();
       syncPollHidden();
       syncUpdate();
+      syncGiveaway();
     });
     window.addEventListener('resize', Chrono.refresh);
 
@@ -520,6 +567,51 @@
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); showMessage(); }
     });
     renderRecent();
+
+    // ---- Giveaway ----
+    async function giveawayAction(action, extra = {}) {
+      $('gaError').textContent = '';
+      const res = await Chrono.post('giveaway', { action, ...extra });
+      if (res.ok) return true;
+      let msg = 'Server unreachable — check the connection';
+      try { msg = (await res.json()).error || msg; } catch {}
+      $('gaError').textContent = `⚠️ ${msg}`;
+      return false;
+    }
+    function syncGiveaway() {
+      const g = Chrono.state.giveaway;
+      if (!g) return;
+      if (document.activeElement !== $('gaKeyword') && !$('gaKeyword').value) $('gaKeyword').value = g.keyword;
+      $('gaKeyword').disabled = g.open;
+      $('gaMembers').checked = g.membersOnly; $('gaMembers').disabled = g.open;
+      if (document.activeElement !== $('gaBanner')) $('gaBanner').checked = g.showBanner;
+      $('gaToggle').textContent = g.open ? 'CLOSE ENTRIES' : 'OPEN ENTRIES';
+      $('gaToggle').classList.toggle('open', g.open);
+      $('gaState').textContent = g.open ? `● Entries open — "${g.keyword}"` : g.count ? 'Entries closed' : '';
+      $('gaState').className = g.open ? 'sub open' : 'sub';
+      $('gaCount').textContent = g.count;
+      $('gaCountLabel').textContent = g.count === 1 ? 'entry' : 'entries';
+      $('gaRecent').textContent = g.recent.length ? `Latest: ${g.recent.join(', ')}` : '';
+      $('gaDraw').disabled = g.count === 0 || g.winners.length >= g.count;
+      $('gaDraw').textContent = g.winners.length ? 'DRAW ANOTHER' : 'DRAW A WINNER';
+      $('gaWinners').replaceChildren(...g.winners.map((w) => Object.assign(document.createElement('li'), { textContent: `🏆 ${w.author}` })));
+      $('gaHide').hidden = !g.reveal;
+    }
+    $('gaToggle').onclick = () => {
+      const g = Chrono.state.giveaway;
+      if (g?.open) return giveawayAction('stop');
+      const keyword = $('gaKeyword').value.trim();
+      if (!keyword) { $('gaError').textContent = '⚠️ Choose a keyword first'; $('gaKeyword').focus(); return; }
+      giveawayAction('start', { keyword, membersOnly: $('gaMembers').checked, showBanner: $('gaBanner').checked });
+    };
+    $('gaBanner').addEventListener('change', (e) => giveawayAction('banner', { showBanner: e.target.checked }));
+    $('gaDraw').onclick = () => giveawayAction('draw');
+    $('gaHide').onclick = () => giveawayAction('hide');
+    $('gaReset').onclick = () => {
+      if (!confirm('Reset the giveaway? All entries and winners will be cleared.')) return;
+      $('gaKeyword').value = '';
+      giveawayAction('reset');
+    };
 
     // ---- Live updates ----
     const short = (sha) => (sha ? sha.slice(0, 7) : 'unknown');

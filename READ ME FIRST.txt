@@ -45,6 +45,19 @@ GOOD TO KNOW
 • The YouTube chat must be enabled on the live stream (not "made for kids").
 
 
+GIVEAWAY
+--------
+1. In the admin, section "Giveaway": type the keyword (e.g. FIFTH) and click OPEN ENTRIES.
+   The TV shows a banner: "type FIFTH in the chat to enter", with the number of entries.
+2. Everyone who writes the keyword in the YouTube chat is entered, once per person
+   (case and accents don't matter; the channel owner is not entered).
+3. Click CLOSE ENTRIES, then DRAW A WINNER: names spin on the TV, then the winner is revealed.
+   DRAW ANOTHER picks someone else (never the same person twice). "Hide winner on TV" clears it.
+• YouTube doesn't tell who liked the live, nor who is subscribed. To keep the giveaway to
+  subscribers, turn on "Subscribers-only chat" in YouTube Studio while entries are open.
+• "Channel members only" keeps the giveaway to paying channel members (badge in the chat).
+
+
 UPDATES
 -------
 New versions are published online. When one is available, the admin shows

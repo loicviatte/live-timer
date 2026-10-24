@@ -9,6 +9,7 @@ const { performance } = require('perf_hooks');
 const crypto = require('crypto');
 const { YouTubeChat } = require('./youtube-chat');
 const updater = require('./updater');
+const { Giveaway } = require('./giveaway');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -96,10 +97,13 @@ function writeJson(file, data) {
 // pollHidden: the admin hid the poll on the TV (reset to false on each new poll)
 let state = { status: 'idle', startedAt: null, pausedElapsed: 0, message: null, pollHidden: false, settings: sanitize(readJson(SETTINGS_FILE) || DEFAULT_SETTINGS) };
 
+const giveaway = new Giveaway();
+
 // Restore the timer after a restart (crash, update, closed window): a running countdown keeps going.
 (function restoreState() {
   const saved = readJson(STATE_FILE);
   if (!saved || typeof saved !== 'object') return;
+  giveaway.restore(saved.giveaway);
   const status = ['idle', 'running', 'paused'].includes(saved.status) ? saved.status : 'idle';
   const startedAt = status === 'running' && Number.isFinite(saved.startedAtWall) ? fromWall(saved.startedAtWall) : null;
   state = {
@@ -120,6 +124,7 @@ function stateSnapshot() {
     pausedElapsed: state.pausedElapsed,
     message: state.message && { text: state.message.text },
     pollHidden: state.pollHidden,
+    giveaway: giveaway.toJSON(),
   };
 }
 function saveState() { writeJson(STATE_FILE, stateSnapshot()); }
@@ -144,7 +149,7 @@ function send(res, chunk) {
 }
 
 function payload() {
-  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), build: BUILD, update, serverNow: now() });
+  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), build: BUILD, update, giveaway: giveaway.publicState(), serverNow: now() });
 }
 
 function broadcast() {
@@ -163,7 +168,10 @@ function chatSend(event) {
 // ---- YouTube chat: the server reads the chat and pushes it to the screens ----
 let lastPollId = null;
 const chat = new YouTubeChat({
-  onAdd: (messages) => chatSend({ type: 'add', messages }),
+  onAdd: (messages) => {
+    chatSend({ type: 'add', messages });
+    if (giveaway.add(messages)) giveawayChanged();
+  },
   onRemove: (id) => chatSend({ type: 'remove', id }),
   onLive: () => broadcast(), // the live start time travels with the timer state (LIVE badge)
   onPoll: (poll) => {
@@ -183,6 +191,13 @@ const chat = new YouTubeChat({
 // closedAt is converted to the server clock, which the screens are synced to.
 function clientPoll(poll) {
   return poll && { ...poll, closedAt: poll.closedAt ? fromWall(poll.closedAt) : null };
+}
+
+// New entries can pour in (busy chat): save and push at most 4 times per second.
+let giveawayTimer = null;
+function giveawayChanged() {
+  if (giveawayTimer) return;
+  giveawayTimer = setTimeout(() => { giveawayTimer = null; saveState(); broadcast(); }, 250);
 }
 
 function chatSnapshot() {
@@ -370,6 +385,29 @@ const server = http.createServer(async (req, res) => {
       return ok(res);
     } catch {
       return fail(res, 400, 'Bad request');
+    }
+  }
+
+  if (post && url.pathname === '/api/giveaway') {
+    try {
+      const body = await readJsonBody(req);
+      const result = {};
+      switch (body.action) {
+        case 'start': giveaway.start({ keyword: body.keyword, membersOnly: body.membersOnly, showBanner: body.showBanner }); break;
+        case 'stop': giveaway.stop(); break;
+        case 'banner': giveaway.showBanner = !!body.showBanner; break;
+        case 'draw': result.winner = giveaway.draw(); break;
+        case 'hide': giveaway.hideReveal(); break;
+        case 'reset': giveaway.reset(); break;
+        default: throw new Error('Unknown action');
+      }
+      saveState();
+      broadcast();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, ...result }));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false, error: err.message }));
     }
   }
 

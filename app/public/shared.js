@@ -340,6 +340,84 @@ window.Chrono = (function () {
     }, 250);
   }
 
+  // ---- Giveaway on the TV: "how to enter" banner + winner reveal ----
+  function mountGiveaway() {
+    const style = document.createElement('style');
+    style.textContent = `
+      #gaBanner {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; height: var(--ga-h, 8vh);
+        display: flex; align-items: center; justify-content: center; gap: .6em; padding: 0 2vw;
+        background: #ffd60a; color: #111; font: 800 4.4vh -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+        box-shadow: 0 -.2em 1em rgba(0,0,0,.35); white-space: nowrap; overflow: hidden;
+      }
+      #gaBanner[hidden] { display: none; }
+      #gaBanner .kw { background: #111; color: #ffd60a; padding: .05em .45em; border-radius: .25em; letter-spacing: .04em; }
+      #gaBanner .n { font-variant-numeric: tabular-nums; opacity: .8; }
+      #gaReveal {
+        position: fixed; inset: 0; z-index: 900; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 3vh; background: rgba(0,0,0,.82); color: #fff; text-align: center; padding: 4vw;
+        font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      }
+      #gaReveal[hidden] { display: none; }
+      #gaReveal .label { font-size: 5vh; font-weight: 800; letter-spacing: .14em; color: #ffd60a; }
+      #gaReveal .name { font-size: 12vh; font-weight: 900; line-height: 1.05; max-width: 92vw; overflow-wrap: anywhere; }
+      #gaReveal.spinning .name { opacity: .75; }
+      #gaReveal.won .name { color: #111; background: #ffd60a; padding: .1em .45em; border-radius: .18em; animation: gaWin .35s 4 steps(1); }
+      @keyframes gaWin { 50% { background: #fff; } }`;
+    const banner = document.createElement('div');
+    banner.id = 'gaBanner'; banner.hidden = true; banner.setAttribute('role', 'status');
+    const reveal = document.createElement('div');
+    reveal.id = 'gaReveal'; reveal.hidden = true; reveal.setAttribute('role', 'alert');
+    reveal.innerHTML = '<div class="label"></div><div class="name"></div>';
+    document.head.append(style);
+    document.body.append(banner, reveal);
+    const label = reveal.querySelector('.label'), name = reveal.querySelector('.name');
+
+    let shownDraw = null, spinTimer = null;
+    function play(r) {
+      clearTimeout(spinTimer);
+      reveal.hidden = false;
+      const fresh = serverNow() - r.drawnAt < 6000; // just drawn: spin; TV opened later: show directly
+      const pool = r.pool.length ? r.pool : ['…'];
+      const finish = () => { reveal.className = 'won'; label.textContent = '🎉 WINNER 🎉'; name.textContent = r.author; };
+      if (!fresh) return finish();
+      reveal.className = 'spinning';
+      label.textContent = '🎁 AND THE WINNER IS…';
+      let i = 0, delay = 60;
+      const step = () => {
+        name.textContent = pool[i++ % pool.length];
+        delay *= 1.12;                              // slows down like a wheel
+        if (delay > 420) return (spinTimer = setTimeout(finish, 450));
+        spinTimer = setTimeout(step, delay);
+      };
+      step();
+    }
+
+    listeners.add(() => {
+      const g = state.giveaway;
+      const showBanner = !!(g?.open && g.showBanner && g.keyword);
+      if (showBanner !== !banner.hidden) {
+        banner.hidden = !showBanner;
+        document.body.classList.toggle('ga-on', showBanner); // pages can keep room for the banner
+        requestAnimationFrame(tick);
+      }
+      if (showBanner) {
+        const html = `🎁 GIVEAWAY — type <span class="kw"></span> in the chat to enter <span class="n"></span>`;
+        if (!banner.firstChild) banner.innerHTML = html;
+        banner.querySelector('.kw').textContent = g.keyword.toUpperCase();
+        banner.querySelector('.n').textContent = `· ${g.count} ${g.count === 1 ? 'entry' : 'entries'}`;
+      }
+      const r = g?.reveal;
+      if (!r) {
+        if (shownDraw !== null) { clearTimeout(spinTimer); reveal.hidden = true; shownDraw = null; }
+        return;
+      }
+      if (r.drawnAt === shownDraw) return;
+      shownDraw = r.drawnAt;
+      play(r);
+    });
+  }
+
   // ---- YouTube poll card (TV + admin). Size follows the container's font-size. ----
   let pollStyled = false;
   // While voting: question + number of voters only (opts.liveResults also shows the bars, for the admin).
@@ -414,7 +492,7 @@ window.Chrono = (function () {
   }
 
   return {
-    connect, remainingMs, msUntilNextSecond, format, formatLong, stepFor, textColor, draw, serverNow, mountHostMessage, mountLiveBadge, renderPoll,
+    connect, remainingMs, msUntilNextSecond, format, formatLong, stepFor, textColor, draw, serverNow, mountHostMessage, mountLiveBadge, mountGiveaway, renderPoll,
     onTick: (fn) => listeners.add(fn),
     onChat: (fn) => chatListeners.add(fn),
     refresh: tick,

@@ -142,10 +142,10 @@ async function install(sha) {
     const src = path.join(tmp, top.name);
 
     // 2. Refuse anything that wouldn't start: the files must exist and the code must parse.
-    for (const f of ['app/server.js', 'app/youtube-chat.js', 'app/updater.js', 'app/public/shared.js', 'app/public/tv.html', 'app/public/admin.html', 'app/public/speaker.html']) {
+    for (const f of ['app/server.js', 'app/youtube-chat.js', 'app/updater.js', 'app/giveaway.js', 'app/public/shared.js', 'app/public/tv.html', 'app/public/admin.html', 'app/public/speaker.html']) {
       if (!fs.existsSync(path.join(src, f))) throw new Error(`Update is incomplete (${f} missing)`);
     }
-    for (const f of ['app/server.js', 'app/youtube-chat.js', 'app/updater.js', 'app/public/shared.js']) {
+    for (const f of ['app/server.js', 'app/youtube-chat.js', 'app/updater.js', 'app/giveaway.js', 'app/public/shared.js']) {
       try { execFileSync(process.execPath, ['--check', path.join(src, f)], { stdio: 'pipe' }); }
       catch { throw new Error(`Update rejected: ${f} has an error`); }
     }

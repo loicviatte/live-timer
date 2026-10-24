@@ -65,9 +65,15 @@ global.fetch = async (url, opts = {}) => {
     if (!session.stalled) {
       const items = log.slice(session.cursor);
       session.cursor = log.length;
-      actions = items.map(({ id }) => ({ clickTrackingParams: 'x', addChatItemAction: { item: { liveChatTextMessageRenderer: {
-        id, message: { runs: [{ text: `Message ${id} — the quick brown fox jumps over the lazy dog` }] },
-        authorName: { simpleText: `@viewer${id.length}` }, authorExternalChannelId: 'UCx' } } } }));
+      // 60 different viewers; with FAKE_YT_KEYWORD, every 3rd message contains it (giveaway tests).
+      actions = items.map(({ id, at }) => {
+        const n = Number(id.split('_')[1]) || 0, viewer = n % 60;
+        const kw = process.env.FAKE_YT_KEYWORD && n % 3 === 0 ? ` ${process.env.FAKE_YT_KEYWORD} ` : ' ';
+        return { clickTrackingParams: 'x', addChatItemAction: { item: { liveChatTextMessageRenderer: {
+          id, message: { runs: [{ text: `Message ${id} —${kw}the quick brown fox jumps over the lazy dog` }] },
+          authorName: { simpleText: `@viewer${viewer}` }, authorExternalChannelId: `UCviewer${viewer}`,
+          timestampUsec: String(at * 1000) } } } };
+      });
     }
     return reply({ continuationContents: { liveChatContinuation: { actions,
       continuations: [{ invalidationContinuationData: { continuation: `${token}:${Number(n) + 1}`, timeoutMs: 10000 } }] } } });
@@ -80,5 +86,6 @@ http.createServer((req, res) => {
   if (req.url.startsWith('/calm')) enabled = false;
   if (req.url.startsWith('/chaos')) enabled = true;
   res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({ ids: log.map((m) => m.id), times: log.map((m) => m.at), faults, sessions: sessionId }));
+  res.end(JSON.stringify({ ids: log.map((m) => m.id), times: log.map((m) => m.at), faults, sessions: sessionId,
+    keyword: process.env.FAKE_YT_KEYWORD || null }));
 }).on('error', () => {}).listen(Number(process.env.FAKE_YT_PORT) || 3013).unref(); // (a dry-run copy may share the port)
