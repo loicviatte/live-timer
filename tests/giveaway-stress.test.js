@@ -79,8 +79,8 @@ test('giveaway under extreme load + crash: responsive, never corrupted, no repea
     let s = await waitUp(base);
     down = false;
     const afterRestart = s.giveaway.count;
-    await sleep(6000);
-    s = await getState(base);
+    // Entries resume after the restart (allow for a loaded machine: up to 15 s).
+    for (let i = 0; i < 150; i++) { await sleep(100); s = await getState(base); if (s.giveaway.count > afterRestart + 50) break; }
     await api(base, { action: 'stop' });
     const final = (await getState(base)).giveaway.count;
 

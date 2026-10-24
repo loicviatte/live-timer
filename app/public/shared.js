@@ -308,38 +308,66 @@ window.Chrono = (function () {
   }
 
   // ---- "● LIVE 1:26:05" badge in the top corner (YouTube live duration) ----
-  function mountLiveBadge() {
+  // opts.stats (TV): a second row with "👁 1,234 watching" (YouTube live viewers) and "🎁 56 entries".
+  function mountLiveBadge(opts = {}) {
     const style = document.createElement('style');
     style.textContent = `
+      #topLeft { position: fixed; top: 1vw; left: 1vw; z-index: 10; display: flex; flex-direction: column; align-items: flex-start; gap: .6vw; }
       #liveTime {
-        position: fixed; top: 1vw; left: 1vw; z-index: 10;
         display: flex; align-items: center; gap: .4em;
         padding: .25em .55em; border-radius: .3em; background: #e5002b; color: #fff;
         font: 800 3.3vw -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
         font-variant-numeric: tabular-nums; line-height: 1.1; box-shadow: 0 .1em .5em rgba(0,0,0,.25);
       }
-      #liveTime[hidden] { display: none; }
+      #liveTime[hidden], #liveStats[hidden], #liveStats .tag[hidden] { display: none; }
       #liveTime .dot { width: .45em; height: .45em; border-radius: 50%; background: #fff; animation: livePulse 2s infinite; }
-      @keyframes livePulse { 50% { opacity: .35; } }`;
+      @keyframes livePulse { 50% { opacity: .35; } }
+      #liveStats { display: flex; gap: .4vw; flex-wrap: wrap; max-width: 33vw; }
+      #liveStats .tag {
+        padding: .2em .5em; border-radius: .3em; background: rgba(0,0,0,.72); color: #fff; border: .06em solid rgba(255,255,255,.25);
+        font: 800 1.75vw -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; line-height: 1.1;
+      }
+      #liveStats .tag.entries { background: #ffd60a; color: #111; border-color: #ffd60a; }`;
+    const wrap = document.createElement('div');
+    wrap.id = 'topLeft';
     const box = document.createElement('div');
     box.id = 'liveTime';
     box.hidden = true;
     box.setAttribute('aria-label', 'Live stream duration');
     box.innerHTML = '<span class="dot"></span><span>LIVE</span><span class="clock">0:00</span>';
+    const stats = document.createElement('div');
+    stats.id = 'liveStats';
+    stats.hidden = true;
+    stats.innerHTML = '<span class="tag viewers" hidden></span><span class="tag entries" hidden></span>';
+    wrap.append(box, stats);
     document.head.append(style);
-    document.body.append(box);
+    document.body.append(wrap);
     const clock = box.querySelector('.clock');
+    const viewersTag = stats.querySelector('.viewers'), entriesTag = stats.querySelector('.entries');
+    const fmt = (n) => n.toLocaleString('en-US');
 
+    let reserved = -1;
     setInterval(() => {
-      const { liveStartedAt } = state;
-      const hidden = !(liveStartedAt && state.settings.youtube);
-      if (hidden !== box.hidden) {
-        box.hidden = hidden;
-        // Pages can reserve space for the badge (live-on class), then the timer is redrawn.
-        document.body.classList.toggle('live-on', !hidden);
+      const { liveStartedAt, liveViewers, giveaway } = state;
+      box.hidden = !(liveStartedAt && state.settings.youtube);
+      if (!box.hidden) clock.textContent = formatLong(serverNow() - liveStartedAt);
+      if (opts.stats) {
+        const showViewers = !box.hidden && Number.isFinite(liveViewers);
+        viewersTag.hidden = !showViewers;
+        if (showViewers) viewersTag.textContent = `👁 ${fmt(liveViewers)} watching`;
+        const showEntries = !!giveaway && (giveaway.open || giveaway.count > 0);
+        entriesTag.hidden = !showEntries;
+        if (showEntries) entriesTag.textContent = `🎁 ${fmt(giveaway.count)} ${giveaway.count === 1 ? 'entry' : 'entries'}`;
+        stats.hidden = !showViewers && !showEntries;
+      }
+      // Pages keep room for this corner (live-on class + --top-h), then the timer is redrawn.
+      const h = box.hidden && stats.hidden ? 0 : Math.ceil(wrap.getBoundingClientRect().bottom + innerWidth * 0.01);
+      if (h !== reserved) {
+        reserved = h;
+        document.body.classList.toggle('live-on', h > 0);
+        document.body.style.setProperty('--top-h', `${h}px`);
         requestAnimationFrame(tick);
       }
-      if (!hidden) clock.textContent = formatLong(serverNow() - liveStartedAt);
     }, 250);
   }
 
@@ -405,10 +433,23 @@ window.Chrono = (function () {
         requestAnimationFrame(tick);
       }
       if (showBanner) {
-        const html = `🎁 GIVEAWAY — type <span class="kw"></span> in the chat to enter <span class="n"></span>`;
-        if (!banner.firstChild) banner.innerHTML = html;
-        banner.querySelector('.kw').textContent = g.keyword.toUpperCase();
-        banner.querySelector('.n').textContent = `· ${g.count} ${g.count === 1 ? 'entry' : 'entries'}`;
+        // "🎁 GIVEAWAY — <how to enter, with the keyword highlighted> · N entries" (built with text nodes only).
+        const how = g.bannerText || `type ${g.keyword} in the chat to enter`;
+        const key = `${how}|${g.keyword}`;
+        if (banner.dataset.key !== key) {
+          banner.dataset.key = key;
+          const parts = [document.createTextNode('🎁 GIVEAWAY — ')];
+          const re = new RegExp(`(${g.keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i');
+          for (const piece of how.split(re)) {
+            if (!piece) continue;
+            parts.push(re.test(piece) && piece.toLowerCase() === g.keyword.toLowerCase()
+              ? Object.assign(document.createElement('span'), { className: 'kw', textContent: piece.toUpperCase() })
+              : document.createTextNode(piece));
+          }
+          parts.push(Object.assign(document.createElement('span'), { className: 'n' }));
+          banner.replaceChildren(...parts);
+        }
+        banner.querySelector('.n').textContent = ` · ${g.count} ${g.count === 1 ? 'entry' : 'entries'}`;
       }
       const r = g?.reveal;
       if (!r) {

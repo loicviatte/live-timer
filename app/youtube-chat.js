@@ -15,6 +15,7 @@ const BACKOFF_MS = Number(process.env.YT_BACKOFF_MS) || 3000;  // first retry de
 // YouTube replays on reconnect (~75).
 const STALL_MS = Number(process.env.YT_STALL_MS) || 60000;
 const STALL_MIN_MS = STALL_MS / 10;
+const VIEWERS_MS = Number(process.env.YT_VIEWERS_MS) || 15000; // how often the "watching now" count is refreshed
 const SEEN_MAX = 2000;  // ids already shown (a reconnect replays the backlog)
 
 // fetch with a hard timeout.
@@ -31,6 +32,8 @@ class YouTubeChat {
     this.onStatus = onStatus;
     this.onLive = onLive;
     this.live = null; // { startWall }: live start time (wall clock, ms), if live now
+    this.viewers = null; // concurrent viewers ("watching now"), when YouTube says it's live
+    this.api = null;     // { key, version } of YouTube's web API, read from its pages
     this.videoId = '';
     this.recent = [];
     this.seen = new Set();
@@ -66,12 +69,14 @@ class YouTubeChat {
     if (!sameVideo) {
       this.setLive(null);
       this.setPoll(null);
+      this.setViewers(null);
     }
     const run = ++this.run;
     this.beat = Date.now();
     if (!videoId) return this.setStatus('off');
     this.loop(run);
     this.liveLoop(run);
+    this.viewersLoop(run);
   }
 
   setPoll(poll) {
@@ -93,13 +98,41 @@ class YouTubeChat {
   }
 
   // Live start time, read from the video page (refreshed every minute: live start, end…).
+  setViewers(n) {
+    const v = Number.isFinite(n) ? n : null;
+    if (v === this.viewers) return;
+    this.viewers = v;
+    this.emit('onLive', this.live); // travels with the live info (the server rebroadcasts the state)
+  }
+
+  // "1,234 watching now": YouTube's lightweight metadata endpoint, every 15 s while live.
+  async viewersLoop(run) {
+    while (run === this.run) {
+      await sleep(this.live ? VIEWERS_MS : 5000);
+      if (run !== this.run) return;
+      if (!this.live || !this.api) { if (this.viewers !== null) this.setViewers(null); continue; }
+      try {
+        const res = await get(`https://www.youtube.com/youtubei/v1/updated_metadata?key=${this.api.key}&prettyPrint=false`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
+          body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: this.api.version } }, videoId: this.videoId }),
+        });
+        if (!res.ok) continue;
+        if (run === this.run) this.setViewers(parseViewers(await res.json()));
+      } catch {}
+    }
+  }
+
   async liveLoop(run) {
     while (run === this.run) {
       try {
         const res = await get(`https://www.youtube.com/watch?v=${this.videoId}`, {
           headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9', Cookie: 'SOCS=CAI; CONSENT=YES+' },
         });
-        const json = (await res.text()).match(/"liveBroadcastDetails":(\{[^}]*\})/)?.[1];
+        const page = await res.text();
+        const key = page.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1], version = page.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1];
+        if (key && version) this.api = { key, version };
+        const json = page.match(/"liveBroadcastDetails":(\{[^}]*\})/)?.[1];
         const d = json && JSON.parse(json);
         const startWall = d?.isLiveNow && Date.parse(d.startTimestamp);
         if (run === this.run) this.setLive(startWall ? { startWall } : null);
@@ -222,6 +255,16 @@ class YouTubeChat {
   }
 }
 
+// Concurrent viewers from an updated_metadata answer — only when YouTube flags the count as live
+// (otherwise it's the total number of views).
+function parseViewers(j) {
+  for (const a of j?.actions || []) {
+    const r = a?.updateViewershipAction?.viewCount?.videoViewCountRenderer;
+    if (r?.isLive && /^\d+$/.test(r.originalViewCount || '')) return Number(r.originalViewCount);
+  }
+  return null;
+}
+
 // ---- Polls ----
 // Open: showLiveChatActionPanelAction, votes: updateLiveChatPollAction,
 // close: closeLiveChatActionPanelAction. We search "pollRenderer" deeply
@@ -333,4 +376,4 @@ function parseItem(item) {
 // unref: these waits never keep the process alive on their own (the HTTP server does).
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms).unref?.());
 
-module.exports = { YouTubeChat };
+module.exports = { YouTubeChat, parseViewers };

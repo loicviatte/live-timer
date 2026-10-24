@@ -47,15 +47,28 @@ GOOD TO KNOW
 
 GIVEAWAY
 --------
-1. In the admin, section "Giveaway": type the keyword (e.g. FIFTH) and click OPEN ENTRIES.
-   The TV shows a banner: "type FIFTH in the chat to enter", with the number of entries.
-2. Everyone who writes the keyword in the YouTube chat is entered, once per person
+1. In the admin, section "Giveaway": type the keyword (e.g. CUP). Optional:
+   "Must say more than the keyword" (e.g. CUP + favourite couple: "CUP" alone doesn't count)
+   and a custom text for the TV. Click OPEN ENTRIES.
+   The TV shows a banner with how to enter and the number of entries.
+2. Everyone who writes the keyword in the YouTube live chat is entered, once per person
    (case and accents don't matter; the channel owner is not entered).
 3. Click CLOSE ENTRIES, then DRAW A WINNER: names spin on the TV, then the winner is revealed.
+   The admin shows the winner's channel (link) and their message.
    DRAW ANOTHER picks someone else (never the same person twice). "Hide winner on TV" clears it.
+4. "Download entries (CSV)" keeps a record of every entry and the winners.
+• Rehearsal (in the Giveaway section): fake viewers and a practice draw, only in the admin —
+  nothing appears on the TV or the live. Use it to practise the whole flow.
 • YouTube doesn't tell who liked the live, nor who is subscribed. To keep the giveaway to
   subscribers, turn on "Subscribers-only chat" in YouTube Studio while entries are open.
+• YouTube has no private messages: ask the winner to reply to your pinned comment under the
+  video from their winning channel, then give them an email/Instagram for their address.
 • "Channel members only" keeps the giveaway to paying channel members (badge in the chat).
+
+TV CORNER
+---------
+Under the LIVE badge, the TV shows the number of viewers watching now (from YouTube) and,
+during a giveaway, the number of entries.
 
 
 UPDATES

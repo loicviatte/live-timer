@@ -88,6 +88,24 @@
     .ga-winners { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 17px; font-weight: 700; }
     .ga-winners:empty { display: none; }
     .ga-winners li::marker { color: #ffd60a; }
+    .ga-winners a { color: #fff; }
+    .ga-winners .said { display: block; font-size: 13px; font-weight: 500; color: #a0a0a0; overflow-wrap: anywhere; }
+    a.small { text-decoration: none; display: inline-block; }
+    .rehearsal { border: 1px dashed #6b7280; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #111827; }
+    .rehearsal h3 { font-size: 16px; color: #c4b5fd; }
+    .rh-count { font-size: 15px; color: #e5e5e5; }
+    .rh-count:empty { display: none; }
+    .rh-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+    .rh-feed:empty { display: none; }
+    .rh-feed li { color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rh-feed li b { color: #e5e5e5; }
+    .rh-feed li.in::before { content: '✓ '; color: #4ade80; }
+    .rh-feed li.out::before { content: '✗ '; color: #f87171; }
+    .rh-reveal { text-align: center; padding: 18px; border-radius: 12px; background: #000; }
+    .rh-reveal .label { font-size: 13px; font-weight: 800; letter-spacing: .12em; color: #ffd60a; }
+    .rh-reveal .name { font-size: 30px; font-weight: 900; margin-top: 6px; overflow-wrap: anywhere; }
+    .rh-reveal.won .name { color: #111; background: #ffd60a; display: inline-block; padding: 2px 14px; border-radius: 8px; }
+    .rh-reveal .said { font-size: 13px; color: #a0a0a0; margin-top: 6px; }
     .ga-error { color: #ff7a7a; }
     .ga-error:empty { display: none; }
     #gaState.open { color: #4ade80; font-weight: 700; }
@@ -171,6 +189,14 @@
       <input type="text" id="gaKeyword" class="ga-keyword" maxlength="40" autocomplete="off" spellcheck="false" placeholder="e.g. FIFTH">
     </div>
     <div class="row">
+      <label for="gaMore">Must say more than the keyword<span class="sub">e.g. "CUP + your favourite couple": a message with only "CUP" doesn't count</span></label>
+      <label class="switch"><input type="checkbox" id="gaMore" role="switch"><span></span></label>
+    </div>
+    <div class="row">
+      <label for="gaBannerText">Text on the TV<span class="sub">Leave empty for "type CUP in the chat to enter"</span></label>
+    </div>
+    <input type="text" id="gaBannerText" class="wide" maxlength="90" autocomplete="off" placeholder="e.g. Comment CUP + your favourite couple in the chat">
+    <div class="row">
       <label for="gaMembers">Channel members only<span class="sub">Only people with a member badge in the chat can enter</span></label>
       <label class="switch"><input type="checkbox" id="gaMembers" role="switch"><span></span></label>
     </div>
@@ -186,9 +212,27 @@
     <ol class="ga-winners" id="gaWinners"></ol>
     <div class="actions">
       <button class="small" id="gaHide" hidden>Hide winner on TV</button>
+      <a class="small" id="gaCsv" href="/api/giveaway/entries.csv" download>Download entries (CSV)</a>
       <button class="small" id="gaReset">Reset giveaway</button>
     </div>
     <p class="note ga-error" id="gaError" role="alert"></p>
+
+    <!-- Rehearsal: fake viewers, a practice draw. Never on the TV, the iPad or the live. -->
+    <div class="rehearsal" aria-labelledby="rh-title">
+      <div class="panel-head">
+        <h3 id="rh-title">Rehearsal</h3>
+        <span class="sub">Only you see this — nothing on the TV or the live</span>
+      </div>
+      <p class="note">Fake viewers type in a fake chat using the keyword and options above. Try the whole flow: open, close, draw.</p>
+      <div class="actions">
+        <button class="small" id="rhStart">Start rehearsal</button>
+        <button class="small" id="rhDraw" disabled>Draw (rehearsal)</button>
+        <button class="small" id="rhReset">Reset</button>
+      </div>
+      <div class="rh-count" id="rhCount"></div>
+      <ul class="rh-feed" id="rhFeed"></ul>
+      <div class="rh-reveal" id="rhReveal" hidden><div class="label" id="rhLabel"></div><div class="name" id="rhName"></div><div class="said" id="rhSaid"></div></div>
+    </div>
     <p class="note">YouTube doesn't tell who liked the live, nor who is subscribed. To keep the giveaway to subscribers,
       turn on <b>Subscribers-only chat</b> in YouTube Studio while entries are open: only subscribers can type the keyword.</p>
   </section>
@@ -460,7 +504,8 @@
       if (!draft.youtube) { el.textContent = 'No live stream set: the TV shows the timer only.'; return; }
       const s = chatState;
       const { liveStartedAt } = Chrono.state;
-      const live = liveStartedAt ? ` · Live for ${Chrono.formatLong(Chrono.serverNow() - liveStartedAt)}` : '';
+      const viewers = Number.isFinite(Chrono.state.liveViewers) ? ` · 👁 ${Chrono.state.liveViewers.toLocaleString('en-US')} watching` : '';
+      const live = liveStartedAt ? ` · Live for ${Chrono.formatLong(Chrono.serverNow() - liveStartedAt)}${viewers}` : '';
       if (s.state === 'ok') { el.textContent = `✓ Chat connected — ${chatCount} message${chatCount === 1 ? '' : 's'} received${live}`; el.style.color = '#1fbf5b'; }
       else if (s.state === 'error') { el.textContent = `⚠️ ${s.detail}. Retrying automatically… (the TV shows the embedded YouTube chat meanwhile)`; el.style.color = '#ffb020'; }
       else el.textContent = `Connecting to the chat of live stream ${draft.youtube}…`;
@@ -590,6 +635,11 @@
       if (document.activeElement !== $('gaKeyword') && !$('gaKeyword').value) $('gaKeyword').value = g.keyword;
       $('gaKeyword').disabled = g.open;
       $('gaMembers').checked = g.membersOnly; $('gaMembers').disabled = g.open;
+      if (g.open || document.activeElement !== $('gaMore')) $('gaMore').checked = g.open ? g.requireMore : $('gaMore').checked;
+      $('gaMore').disabled = g.open;
+      if (document.activeElement !== $('gaBannerText') && (g.open || !$('gaBannerText').value)) $('gaBannerText').value = g.bannerText || '';
+      $('gaBannerText').disabled = g.open;
+      $('gaCsv').hidden = g.count === 0;
       if (document.activeElement !== $('gaBanner')) $('gaBanner').checked = g.showBanner;
       $('gaToggle').textContent = g.open ? 'CLOSE ENTRIES' : 'OPEN ENTRIES';
       $('gaToggle').classList.toggle('open', g.open);
@@ -600,7 +650,14 @@
       $('gaRecent').textContent = g.recent.length ? `Latest: ${g.recent.join(', ')}` : '';
       $('gaDraw').disabled = g.count === 0 || g.winners.length >= g.count;
       $('gaDraw').textContent = g.winners.length ? 'DRAW ANOTHER' : 'DRAW A WINNER';
-      $('gaWinners').replaceChildren(...g.winners.map((w) => Object.assign(document.createElement('li'), { textContent: `🏆 ${w.author}` })));
+      $('gaWinners').replaceChildren(...g.winners.map((w) => {
+        const li = document.createElement('li');
+        const name = w.channel ? Object.assign(document.createElement('a'), { href: w.channel, target: '_blank', rel: 'noopener', textContent: `🏆 ${w.author}`, title: 'Open their YouTube channel' })
+          : Object.assign(document.createElement('span'), { textContent: `🏆 ${w.author}` });
+        li.append(name);
+        if (w.text) li.append(Object.assign(document.createElement('span'), { className: 'said', textContent: `“${w.text}”` }));
+        return li;
+      }));
       $('gaHide').hidden = !g.reveal;
     }
     $('gaToggle').onclick = () => {
@@ -608,7 +665,8 @@
       if (g?.open) return giveawayAction('stop');
       const keyword = $('gaKeyword').value.trim();
       if (!keyword) { $('gaError').textContent = '⚠️ Choose a keyword first'; $('gaKeyword').focus(); return; }
-      giveawayAction('start', { keyword, membersOnly: $('gaMembers').checked, showBanner: $('gaBanner').checked });
+      giveawayAction('start', { keyword, membersOnly: $('gaMembers').checked, showBanner: $('gaBanner').checked,
+        requireMore: $('gaMore').checked, bannerText: $('gaBannerText').value });
     };
     $('gaBanner').addEventListener('change', (e) => giveawayAction('banner', { showBanner: e.target.checked }));
     $('gaDraw').onclick = () => giveawayAction('draw');
@@ -618,6 +676,70 @@
       $('gaKeyword').value = '';
       giveawayAction('reset');
     };
+
+    // ---- Rehearsal (admin only, polled; nothing is broadcast to the screens) ----
+    let rhPoll = null, rhShown = null, rhSpin = null;
+    async function rehearsal(action) {
+      $('gaError').textContent = '';
+      const res = await Chrono.post('rehearsal', { action, keyword: $('gaKeyword').value.trim() || 'CUP', requireMore: $('gaMore').checked });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) { $('gaError').textContent = `⚠️ ${data.error || 'Server unreachable'}`; return; }
+      renderRehearsal(data.state);
+    }
+    function renderRehearsal(r) {
+      $('rhStart').textContent = r.running ? 'Close entries (rehearsal)' : 'Start rehearsal';
+      $('rhDraw').disabled = r.count === 0 || r.winners.length >= r.count;
+      $('rhCount').textContent = r.keyword ? `${r.count} fake ${r.count === 1 ? 'entry' : 'entries'}${r.running ? ' — entries open' : ' — entries closed'}` : '';
+      $('rhFeed').replaceChildren(...r.feed.map((m) => {
+        const li = document.createElement('li');
+        li.className = m.entered ? 'in' : 'out';
+        li.append(Object.assign(document.createElement('b'), { textContent: m.author }), document.createTextNode(`: ${m.text}`));
+        li.title = m.entered ? 'Entered' : 'Not counted (already entered, or not a valid entry)';
+        return li;
+      }));
+      const reveal = r.reveal;
+      if (!reveal) { $('rhReveal').hidden = true; rhShown = null; return; }
+      if (reveal.drawnAt === rhShown) return;
+      rhShown = reveal.drawnAt;
+      const w = r.winners[r.winners.length - 1];
+      $('rhReveal').hidden = false;
+      $('rhReveal').className = 'rh-reveal';
+      $('rhLabel').textContent = '🎁 AND THE WINNER IS…';
+      $('rhSaid').textContent = '';
+      const pool = reveal.pool.length ? reveal.pool : ['…'];
+      let i = 0, delay = 60;
+      clearTimeout(rhSpin);
+      const step = () => {
+        $('rhName').textContent = pool[i++ % pool.length];
+        delay *= 1.12;
+        if (delay > 420) {
+          rhSpin = setTimeout(() => {
+            $('rhReveal').className = 'rh-reveal won';
+            $('rhLabel').textContent = '🎉 WINNER (rehearsal) 🎉';
+            $('rhName').textContent = reveal.author;
+            $('rhSaid').textContent = w?.text ? `“${w.text}”` : '';
+          }, 450);
+          return;
+        }
+        rhSpin = setTimeout(step, delay);
+      };
+      step();
+    }
+    function pollRehearsal(on) {
+      clearInterval(rhPoll);
+      if (on) rhPoll = setInterval(async () => {
+        try { renderRehearsal(await (await fetch('/api/rehearsal', { cache: 'no-store' })).json()); } catch {}
+      }, 700);
+    }
+    $('rhStart').onclick = async () => {
+      const running = $('rhStart').textContent.startsWith('Close');
+      await rehearsal(running ? 'stop' : 'start');
+      pollRehearsal(!running);
+    };
+    $('rhDraw').onclick = () => rehearsal('draw');
+    $('rhReset').onclick = () => { pollRehearsal(false); rehearsal('reset'); };
+    fetch('/api/rehearsal').then((r) => r.json()).then((r) => { renderRehearsal(r); pollRehearsal(r.running); }).catch(() => {});
 
     // ---- Live updates ----
     const short = (sha) => (sha ? sha.slice(0, 7) : 'unknown');

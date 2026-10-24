@@ -219,3 +219,13 @@ test('switching the live link mid-connection: the old stream leaks nothing', asy
   const statusesAfterSwitch = ev.statuses.slice(ev.statuses.findIndex((s) => s.state === 'connecting') + 1);
   assert.ok(statusesAfterSwitch.every((s) => s.state !== 'error'), 'no stray status from the old video');
 });
+
+test('live viewers: the "watching now" count is used, a total views count is ignored', () => {
+  const { parseViewers } = require('../app/youtube-chat');
+  const answer = (r) => ({ actions: [{ clickTrackingParams: 'x' }, { updateViewershipAction: { viewCount: { videoViewCountRenderer: r } } }] });
+  assert.equal(parseViewers(answer({ isLive: true, originalViewCount: '16779', viewCount: { simpleText: '16,779 watching now' } })), 16779);
+  assert.equal(parseViewers(answer({ originalViewCount: '33920', viewCount: { simpleText: '33,920 views' } })), null, 'not live: total views');
+  assert.equal(parseViewers(answer({ isLive: true, originalViewCount: 'lots' })), null);
+  assert.equal(parseViewers({}), null);
+  assert.equal(parseViewers(null), null);
+});

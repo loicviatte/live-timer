@@ -10,6 +10,8 @@ const crypto = require('crypto');
 const { YouTubeChat } = require('./youtube-chat');
 const updater = require('./updater');
 const { Giveaway } = require('./giveaway');
+const { Rehearsal } = require('./rehearsal');
+const rehearsal = new Rehearsal(); // practice giveaway with fake viewers: admin only, never on screens
 const { Monitor } = require('./monitor');
 const monitor = new Monitor();
 // Incident tracking for the alerts (see "Remote health monitoring" below).
@@ -90,23 +92,32 @@ function readJson(file) {
 
 // Atomic write (temp file + rename): a crash mid-write never leaves a corrupted file.
 // Writes to the same file never overlap: while one is in progress, the next one waits, and a burst
-// of changes becomes a single write of the latest data. `data` can be a function: it's only turned
-// into JSON when actually written (cheap even with a big state and many clicks).
-const writing = new Map(); // file -> { busy, pending }
+// of changes becomes a single write of the latest data. Returns a promise resolved once the data
+// (or newer data) is on disk. `data` can be a function: only turned into JSON when actually written.
+const writing = new Map(); // file -> { busy, pending, waiters }
 function writeJson(file, data) {
-  const w = writing.get(file) || { busy: false, pending: undefined };
+  const w = writing.get(file) || { busy: false, pending: undefined, waiters: [] };
   writing.set(file, w);
-  if (w.busy) { w.pending = data; return; }
-  w.busy = true;
-  const tmp = `${file}.tmp`;
-  const value = typeof data === 'function' ? data() : data;
-  fs.writeFile(tmp, typeof value === 'string' ? value : JSON.stringify(value), (err) => {
-    const done = () => {
+  return new Promise((resolve) => {
+    if (w.busy) { w.pending = data; w.waiters.push(resolve); return; }
+    w.busy = true;
+    const tmp = `${file}.tmp`;
+    const finish = () => {
+      resolve();
       w.busy = false;
-      if (w.pending !== undefined) { const next = w.pending; w.pending = undefined; writeJson(file, next); }
+      if (w.pending !== undefined) {
+        const next = w.pending, waiters = w.waiters;
+        w.pending = undefined; w.waiters = [];
+        writeJson(file, next).then(() => waiters.forEach((r) => r()));
+      }
     };
-    if (err) { console.error('  [error] could not save', path.basename(file), err.message); return done(); }
-    fs.rename(tmp, file, (e) => { if (e) console.error('  [error] could not save', path.basename(file), e.message); done(); });
+    let text;
+    try { const v = typeof data === 'function' ? data() : data; text = typeof v === 'string' ? v : JSON.stringify(v); }
+    catch (err) { console.error('  [error] could not save', path.basename(file), err.message); return finish(); }
+    fs.writeFile(tmp, text, (err) => {
+      if (err) { console.error('  [error] could not save', path.basename(file), err.message); return finish(); }
+      fs.rename(tmp, file, (e) => { if (e) console.error('  [error] could not save', path.basename(file), e.message); finish(); });
+    });
   });
 }
 
@@ -150,13 +161,14 @@ function stateSnapshot() {
     alive: true, // cleared on a clean exit (see markExit)
   };
 }
-// Saved right away (a crash just after a draw must not lose the winner); bursts are merged by writeJson.
-function saveState() { writeJson(STATE_FILE, stateSnapshot); }
+// Saves the state; resolves once it's on disk (bursts merged by writeJson). Admin actions wait for it
+// before answering, so a crash a millisecond after a click (a draw, GO…) never loses it.
+function saveState() { return writeJson(STATE_FILE, stateSnapshot); }
 
 function setState(patch) {
   state = { ...state, ...patch };
-  saveState();
-  broadcast();
+  broadcast();          // screens update right away…
+  return saveState();   // …and callers can wait for the disk
 }
 
 // ---- Server-Sent Events: ONE stream per page (browsers allow only ~6 connections per server,
@@ -173,7 +185,7 @@ function send(res, chunk) {
 }
 
 function payload() {
-  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), build: BUILD, update, giveaway: giveaway.publicState(),
+  return JSON.stringify({ ...state, liveStartedAt: liveStartedAt(), liveViewers: chat.viewers, build: BUILD, update, giveaway: giveaway.publicState(),
     monitor: { configured: !!monitor.topic, active: monitor.active, topic: monitor.topic }, serverNow: now() });
 }
 
@@ -440,18 +452,18 @@ const server = http.createServer(async (req, res) => {
     // From a pause, resume from the time already elapsed.
     if (state.status !== 'running') {
       const elapsed = state.status === 'paused' ? state.pausedElapsed : 0;
-      setState({ status: 'running', startedAt: now() - elapsed, pausedElapsed: 0 });
+      await setState({ status: 'running', startedAt: now() - elapsed, pausedElapsed: 0 });
     }
     return ok(res);
   }
 
   if (post && url.pathname === '/api/pause') {
-    if (state.status === 'running') setState({ status: 'paused', pausedElapsed: now() - state.startedAt });
+    if (state.status === 'running') await setState({ status: 'paused', pausedElapsed: now() - state.startedAt });
     return ok(res);
   }
 
   if (post && url.pathname === '/api/reset') {
-    setState({ status: 'idle', startedAt: null, pausedElapsed: 0 });
+    await setState({ status: 'idle', startedAt: null, pausedElapsed: 0 });
     return ok(res);
   }
 
@@ -460,7 +472,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const text = String(body.text ?? '').trim().slice(0, 300);
       if (!text) throw new Error('empty');
-      setState({ message: { id: now(), text, blink: body.blink !== false } });
+      await setState({ message: { id: now(), text, blink: body.blink !== false } });
       return ok(res);
     } catch {
       return fail(res, 400, 'Bad message');
@@ -468,17 +480,47 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (post && url.pathname === '/api/message/clear') {
-    setState({ message: null });
+    await setState({ message: null });
     return ok(res);
   }
 
   if (post && url.pathname === '/api/poll/hidden') {
     try {
-      setState({ pollHidden: !!(await readJsonBody(req)).hidden });
+      await setState({ pollHidden: !!(await readJsonBody(req)).hidden });
       return ok(res);
     } catch {
       return fail(res, 400, 'Bad request');
     }
+  }
+
+  // Rehearsal (admin only): polled by the admin page, never broadcast to the screens.
+  if (!post && url.pathname === '/api/rehearsal') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify(rehearsal.state()));
+  }
+  if (post && url.pathname === '/api/rehearsal') {
+    try {
+      const body = await readJsonBody(req);
+      const result = {};
+      switch (body.action) {
+        case 'start': rehearsal.start({ keyword: body.keyword || 'CUP', requireMore: body.requireMore }); break;
+        case 'stop': rehearsal.stop(); break;
+        case 'draw': result.winner = rehearsal.giveaway.draw(); break;
+        case 'reset': rehearsal.reset(); break;
+        default: throw new Error('Unknown action');
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, ...result, state: rehearsal.state() }));
+    } catch (err) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+  }
+
+  if (!post && url.pathname === '/api/giveaway/entries.csv') {
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store',
+      'Content-Disposition': `attachment; filename="giveaway-${new Date().toISOString().slice(0, 10)}.csv"` });
+    return res.end(giveaway.toCSV());
   }
 
   if (post && url.pathname === '/api/giveaway') {
@@ -486,7 +528,8 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const result = {};
       switch (body.action) {
-        case 'start': giveaway.start({ keyword: body.keyword, membersOnly: body.membersOnly, showBanner: body.showBanner }); break;
+        case 'start': giveaway.start({ keyword: body.keyword, membersOnly: body.membersOnly, showBanner: body.showBanner,
+          requireMore: body.requireMore, bannerText: body.bannerText }); break;
         case 'stop': giveaway.stop(); break;
         case 'banner': giveaway.showBanner = !!body.showBanner; break;
         case 'draw': result.winner = giveaway.draw(); break;
@@ -494,8 +537,8 @@ const server = http.createServer(async (req, res) => {
         case 'reset': giveaway.reset(); break;
         default: throw new Error('Unknown action');
       }
-      saveState();
       broadcast();
+      await saveState(); // on disk before we answer: a crash right after a draw keeps the winner
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, ...result }));
     } catch (err) {
@@ -517,7 +560,7 @@ const server = http.createServer(async (req, res) => {
   if (post && url.pathname === '/api/settings') {
     try {
       const settings = sanitize(await readJsonBody(req));
-      setState({ settings });
+      await setState({ settings });
       monitor.enabled = settings.monitor;
       writeJson(SETTINGS_FILE, settings);
       startChat(settings.youtube);

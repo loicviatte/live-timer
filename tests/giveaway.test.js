@@ -109,6 +109,37 @@ test('save / restore keeps entries, winners and the open state; garbage is ignor
   }
 });
 
+test('"CUP + your favourite couple": the keyword alone does not count', () => {
+  const g = new Giveaway();
+  g.start({ keyword: 'CUP', requireMore: true });
+  const ok = { a: 'CUP Ellie & Vito', b: 'cup - Tasha and Aljaž!!', c: 'My favourite couple is Sam + Lauren CUP' };
+  const ko = { d: 'CUP', e: 'cup!!!', f: 'CUP 🏆🏆', g: 'CUP 1', h: 'cup x' };
+  for (const [id, t] of Object.entries({ ...ok, ...ko })) g.add([msg(id, t)]);
+  assert.deepEqual([...g.entrants.keys()].sort(), Object.keys(ok).sort());
+  assert.equal(g.entrants.get('b').text, 'cup - Tasha and Aljaž!!', 'their message is kept (to read it out / find them)');
+});
+
+test('winners carry their channel link and message; CSV export of every entry', () => {
+  const g = new Giveaway();
+  g.start({ keyword: 'cup', bannerText: 'Comment CUP + your favourite couple' });
+  g.add([msg('UCaaaaaaaaaaaaaaaaaaaaaa', 'CUP "Ellie" & Vito', { author: 'Jo, the "fan"' }), msg('UCbbbbbbbbbbbbbbbbbbbbbb', 'cup Sam & Lauren', { author: 'Élise' })]);
+  const w = g.draw();
+  const pub = g.publicState();
+  assert.equal(pub.bannerText, 'Comment CUP + your favourite couple');
+  assert.equal(pub.winners[0].channel, `https://www.youtube.com/channel/${w.authorId}`);
+  assert.ok(pub.winners[0].text.length > 0);
+  const csv = g.toCSV();
+  assert.ok(csv.startsWith('﻿'), 'BOM so Excel shows accents');
+  const lines = csv.trim().split('\r\n');
+  assert.equal(lines.length, 3, 'header + 2 entries');
+  assert.match(csv, /"Jo, the ""fan"""/, 'commas and quotes escaped');
+  assert.match(csv, /Élise/);
+  assert.equal(lines.filter((l) => l.endsWith(',"1"')).length, 1, 'the winner is marked');
+  const r = new Giveaway();
+  r.restore(JSON.parse(JSON.stringify(g)));
+  assert.equal(r.bannerText, 'Comment CUP + your favourite couple');
+});
+
 // ---- End to end: real server + fake YouTube chat (60 viewers, every 3rd message has the keyword) ----
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -121,7 +152,7 @@ function startServer(dir, port, fakePort) {
   const proc = spawn(process.execPath, [path.join(__dirname, '..', 'app', 'server.js')], {
     env: { ...process.env, PORT: String(port), UPDATE_CHECK: '0', SETTINGS_FILE: path.join(dir, 'settings.json'), STATE_FILE: path.join(dir, 'state.json'),
       NODE_OPTIONS: `--require ${path.join(__dirname, 'fixtures', 'fake-youtube.js')}`, FAKE_YT_PORT: String(fakePort),
-      FAKE_YT_RATE: '20', FAKE_YT_CHAOS: '0.05', FAKE_YT_KEYWORD: 'FiFtH', YT_POLL_MS: '300', YT_TIMEOUT_MS: '2000', YT_BACKOFF_MS: '300' },
+      FAKE_YT_RATE: '20', FAKE_YT_CHAOS: '0.05', FAKE_YT_KEYWORD: 'FiFtH', YT_POLL_MS: '300', YT_TIMEOUT_MS: '2000', YT_BACKOFF_MS: '300', YT_VIEWERS_MS: '1000' },
     stdio: 'ignore',
   });
   return { proc, stop: () => new Promise((r) => { if (proc.exitCode !== null) return r(); proc.once('exit', r); proc.kill('SIGKILL'); }) };
@@ -141,13 +172,14 @@ test('end to end: chat → entries → draw → restart keeps everything', { tim
     for (let i = 0; i < 60; i++) { try { await getState(base); break; } catch { await sleep(100); } }
     assert.equal((await api(base, { action: 'draw' })).error, 'No entries yet');
     assert.equal((await api(base, { action: 'start', keyword: '  ' })).status, 400);
-    const opened = await api(base, { action: 'start', keyword: 'fifth' }); // case differs from the chat's "FiFtH"
+    const opened = await api(base, { action: 'start', keyword: 'fifth', requireMore: true }); // case differs from the chat's "FiFtH"
     assert.equal(opened.ok, true);
     await sleep(6000);
     let s = await getState(base);
     assert.equal(s.giveaway.open, true);
     assert.ok(s.giveaway.count >= 20 && s.giveaway.count <= 60, `viewers who typed the keyword entered once each (${s.giveaway.count})`);
     assert.equal(s.giveaway.recent.length, 8);
+    assert.ok(Number.isFinite(s.liveViewers) && s.liveViewers > 1000, `live viewers reach the screens (${s.liveViewers})`);
     assert.ok(s.giveaway.recent.every((n) => /^@viewer\d+$/.test(n)));
     await api(base, { action: 'stop' });
     const closedCount = (await getState(base)).giveaway.count;
@@ -167,6 +199,9 @@ test('end to end: chat → entries → draw → restart keeps everything', { tim
     assert.deepEqual(s.giveaway.winners.map((w) => w.author), [w1.winner.author, w2.winner.author]);
     const w3 = await api(base, { action: 'draw' });
     assert.ok(![w1, w2].some((w) => w.winner.authorId === w3.winner.authorId), 'still no repeat after a restart');
+    const csv = await (await fetch(`${base}/api/giveaway/entries.csv`)).text();
+    assert.equal(csv.trim().split('\r\n').length, closedCount + 1, 'CSV: one line per entry');
+    assert.match(csv, /channel_url/);
     await api(base, { action: 'hide' });
     assert.equal((await getState(base)).giveaway.reveal, null);
     await api(base, { action: 'reset' });
@@ -174,4 +209,45 @@ test('end to end: chat → entries → draw → restart keeps everything', { tim
     assert.equal(s.giveaway.count, 0);
     assert.equal(s.giveaway.winners.length, 0);
   } finally { await srv.stop(); }
+});
+
+test('rehearsal: fake viewers, practice draws — never touches the real giveaway or what screens receive', { timeout: 30000 }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'timer-rh-'));
+  const port = await freePort(), base = `http://localhost:${port}`;
+  const proc = spawn(process.execPath, [path.join(__dirname, '..', 'app', 'server.js')], {
+    env: { ...process.env, PORT: String(port), NO_YOUTUBE: '1', UPDATE_CHECK: '0', SETTINGS_FILE: path.join(dir, 's.json'), STATE_FILE: path.join(dir, 'st.json') }, stdio: 'ignore' });
+  const rh = (action, extra = {}) => fetch(`${base}/api/rehearsal`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) }).then((r) => r.json());
+  try {
+    for (let i = 0; i < 60; i++) { try { await getState(base); break; } catch { await sleep(100); } }
+    await rh('start', { keyword: 'CUP', requireMore: true });
+    await sleep(5000);
+    await rh('stop');
+    const st = (await rh('draw')).state;
+    assert.ok(st.count >= 3, `fake entries came in (${st.count})`);
+    assert.equal(st.winners.length, 1);
+    assert.ok(st.winners[0].text.toUpperCase().includes('CUP'));
+    // What the screens (TV, iPad) receive: nothing from the rehearsal.
+    const screens = await getState(base);
+    assert.equal(screens.giveaway.count, 0);
+    assert.equal(screens.giveaway.reveal, null);
+    assert.equal(screens.giveaway.open, false);
+    assert.ok(!JSON.stringify(screens).includes('rehearsal'));
+    const reset = await rh('reset');
+    assert.equal(reset.state.count, 0);
+  } finally { proc.kill('SIGKILL'); }
+});
+
+test('rehearsal fake chat: mostly valid entries, plus messages that must not count', () => {
+  const { Rehearsal } = require('../app/rehearsal');
+  const r = new Rehearsal();
+  r.giveaway.start({ keyword: 'CUP', requireMore: true });
+  let valid = 0, invalid = 0;
+  for (let i = 0; i < 500; i++) {
+    const m = r.fakeMessage();
+    const probe = new Giveaway();
+    probe.start({ keyword: 'CUP', requireMore: true });
+    probe.add([m]) ? valid++ : invalid++;
+  }
+  assert.ok(valid > 300 && invalid > 50, `valid ${valid}, invalid ${invalid}`);
+  r.reset();
 });

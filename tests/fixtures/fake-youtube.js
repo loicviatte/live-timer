@@ -37,7 +37,11 @@ global.fetch = async (url, opts = {}) => {
   const reply = (body, status = 200) => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
   const hang = () => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
   if (url.includes('/watch?v=')) {
-    return reply(`{"liveBroadcastDetails":{"isLiveNow":true,"startTimestamp":"${new Date(startedAt - 3600e3).toISOString()}"}}`);
+    return reply(`"INNERTUBE_API_KEY":"K","INNERTUBE_CLIENT_VERSION":"2"{"liveBroadcastDetails":{"isLiveNow":true,"startTimestamp":"${new Date(startedAt - 3600e3).toISOString()}"}}`);
+  }
+  if (url.includes('updated_metadata')) {
+    const viewers = 1200 + Math.floor(Math.sin(Date.now() / 20000) * 150 + Math.random() * 20);
+    return reply({ actions: [{ updateViewershipAction: { viewCount: { videoViewCountRenderer: { isLive: true, originalViewCount: String(viewers) } } } }] });
   }
   if (url.includes('/live_chat?v=')) {
     const f = fault();
