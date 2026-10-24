@@ -19,7 +19,7 @@ const VERSION_FILE = path.join(APP_DIR, '.version');
 // Never overwritten by an update: they belong to this Mac.
 const KEEP = new Set(['settings.json', 'runtime-state.json', '.version']);
 // Files next to the app folder that an update also refreshes.
-const ROOT_FILES = ['Start Timer.command', 'READ ME FIRST.txt', 'README.md'];
+const ROOT_FILES = ['Start Timer.command', 'READ ME FIRST.txt'];
 
 const get = (url, headers = {}) => fetch(url, { headers: { 'User-Agent': 'live-timer', ...headers }, signal: AbortSignal.timeout(20000) });
 
